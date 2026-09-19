@@ -14,6 +14,7 @@ jobs:
           distribution: 'temurin'
       - name: Setup Android SDK
         run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
           mkdir -p $ANDROID_HOME/cmdline-tools
           curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/clt.zip
           unzip -q -o /tmp/clt.zip -d $ANDROID_HOME/cmdline-tools/
