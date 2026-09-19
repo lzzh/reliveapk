@@ -15,16 +15,14 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-            - name: Setup Android SDK
+      - name: Setup Android SDK
         run: |
           export ANDROID_HOME=/usr/local/lib/android/sdk
           export ANDROID_SDK_ROOT=$ANDROID_HOME
           mkdir -p "$ANDROID_HOME/licenses"
-          # 直接写 license 文件（绕开 yes 管道，避免 broken pipe）
           echo "24333f8a63b68ba58666a6100c996c5f" > "$ANDROID_HOME/licenses/android-sdk-license"
           echo "55d711544f6b555c266c9100155f4e02" >> "$ANDROID_HOME/licenses/android-sdk-license"
           echo "sdk.dir=$ANDROID_HOME" > local.properties
-          # 动态找当前可用的 cmdline-tools 版本号
           CLT_VER=""
           for v in 13114758 12700310 11076708 9477386; do
             code=$(curl -sI -o /dev/null -w '%{http_code}' "https://dl.google.com/android/repository/commandlinetools-linux-${v}_latest.zip" || echo 000)
@@ -43,7 +41,7 @@ jobs:
           echo "=== 校验 SDK ==="
           ls -la "$ANDROID_HOME/platforms" "$ANDROID_HOME/build-tools"
 
-- name: Build Debug APK
+      - name: Build Debug APK
         run: |
           echo "JAVA_HOME=$JAVA_HOME"
           echo "ANDROID_HOME=$ANDROID_HOME"
