@@ -44,9 +44,9 @@ jobs:
       - name: Setup Gradle
         run: |
           # 用官方 gradle 发行版（绕开工程里残缺的 gradle-wrapper.jar）
-          curl -fsSL https://services.gradle.org/distributions/gradle-8.5-bin.zip -o /tmp/gradle.zip
+          curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
           unzip -q -o /tmp/gradle.zip -d /opt/
-          ln -sf /opt/gradle-8.5/bin/gradle /usr/local/bin/gradle
+          ln -sf /opt/gradle-8.7/bin/gradle /usr/local/bin/gradle
           gradle --version
 
       - name: Build Debug APK
