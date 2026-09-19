@@ -20,7 +20,7 @@ object EInkDecoder {
     const val HEIGHT = 480
     const val PIXELS_PER_BYTE = 2
 
-    private val PALETTE: Array<Int> = intArrayOf(
+    private val PALETTE: IntArray = intArrayOf(
         0xFF000000.toInt(), // 0x0 黑
         0xFFFFFFFF.toInt(), // 0x1 白
         0xFFFFFF00.toInt(), // 0x2 黄

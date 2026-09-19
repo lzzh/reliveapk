@@ -58,9 +58,7 @@ fun ReliveScreen(vm: ReliveViewModel) {
         backgroundColor = Color(0xFF101010),
         floatingActionButton = {
             FloatingActionButton(
-                onClick = { vm.refresh() },
-                containerColor = MaterialTheme.colors.primary,
-                contentColor = MaterialTheme.colors.onPrimary
+                onClick = { vm.refresh() }
             ) {
                 Icon(Icons.Default.Refresh, contentDescription = "刷新")
             }
@@ -152,7 +150,7 @@ fun ReliveScreen(vm: ReliveViewModel) {
 private fun formatTime(ms: Long): String =
     if (ms == 0L) "—" else SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(ms))
 
-private fun darkColors(): ColorScheme = lightColors().copy(
+private fun darkColors(): Colors = lightColors().copy(
     primary = Color(0xFF40C4FF),
     onPrimary = Color(0xFF003345),
     background = Color(0xFF101010),
