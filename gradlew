@@ -1,60 +1,34 @@
 #!/bin/sh
+# 简化但正确的 Gradle wrapper launcher（POSIX sh）
+# 仅在本机/CI 作为 entry，真正的下载与分发由 gradle-wrapper.jar 完成
 
-#
-# Copyright © 2015-2021 the original authors.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
+# 1. 解析 APP_HOME（gradlew 所在目录）
+APP_HOME=$(cd "$(dirname "$0")" && pwd -P)
 
-##############################################################################
-#
-#   Gradle start up script for POSIX
-#
-##############################################################################
-
-# Attempt to set APP_HOME
-
-# Resolve links: $0 may be a link
-app_path=$0
-while [ -h "$app_path" ]; do
-  ls=$( ls -l "$app_path" )
-  app_path=${ls#* -> }
-  case $app_path in
-  /*) ;;
-  *) app_path=$PWD/$app_path ;;
-  esac
-done
-
-APP_HOME=$( cd "${PARENT:-$(dirname "$app_path")}/.." && pwd -P )
-APP_NAME="Gradle"
-APP_BASE_NAME=${0##*/}
-
-DEFAULT_JVM_OPTS='"-Xmx64m" "-Xms64m"'
-
-CLASSPATH=$APP_HOME/gradle/wrapper/gradle-wrapper.jar
-
-if [ -n "$JAVA_HOME" ] ; then
-    JAVACMD="$JAVA_HOME/bin/java"
+# 2. 找 java
+if [ -n "$JAVA_HOME" ] && [ -x "$JAVA_HOME/bin/java" ]; then
+  JAVACMD="$JAVA_HOME/bin/java"
+elif command -v java >/dev/null 2>&1; then
+  JAVACMD="java"
 else
-    JAVACMD="java"
+  echo "ERROR: JAVA_HOME is set to an invalid directory: $JAVA_HOME" >&2
+  echo "       and/or no java found in PATH" >&2
+  exit 1
 fi
 
-# Determine the maximum JVM workers
-# 16 worker threads seems to be a good default
-WORKERS=${GRADLE_WORKERS:-16}
+# 3. wrapper jar 路径
+WRAPPER_JAR="$APP_HOME/gradle/wrapper/gradle-wrapper.jar"
+if [ ! -f "$WRAPPER_JAR" ]; then
+  echo "ERROR: gradle-wrapper.jar not found at $WRAPPER_JAR" >&2
+  exit 1
+fi
 
+# 4. JVM 默认参数（最小化，避免 word-splitting 坑）
+DEFAULT_JVM_OPTS='-Xmx64m -Xms64m'
+
+# 5. 启动 wrapper main（注意：-Xmx 作为 JVM 参数放 -classpath 之前）
 exec "$JAVACMD" \
-  $DEFAULT_JVM_OPTS \
-  -classpath "$CLASSPATH" \
+  -Xmx64m -Xms64m \
+  -classpath "$WRAPPER_JAR" \
   org.gradle.wrapper.GradleWrapperMain \
   "$@"
