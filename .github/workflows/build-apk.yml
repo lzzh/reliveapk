@@ -17,14 +17,14 @@ jobs:
 
       - name: Setup Android SDK
         run: |
-          set -euo pipefail
+          set -uo pipefail
           echo "ANDROID_HOME=$ANDROID_HOME"
           echo "$ANDROID_HOME" >> $GITHUB_PATH
           echo "sdk.dir=${ANDROID_HOME}" > local.properties
           # 动态找当前可用的 cmdline-tools 版本号（Google 会轮换"latest"构建号）
           CLT_VER=""
           for v in 13114758 12700310 11076708 9477386; do
-            code=$(curl -sI -o /dev/null -w '%{http_code}' "https://dl.google.com/android/repository/commandlinetools-linux-${v}_latest.zip")
+            code=$(curl -sI -o /dev/null -w '%{http_code}' "https://dl.google.com/android/repository/commandlinetools-linux-${v}_latest.zip" || echo 000)
             if [ "$code" = "200" ]; then CLT_VER=$v; break; fi
           done
           if [ -z "$CLT_VER" ]; then echo "No valid cmdline-tools version found"; exit 1; fi
@@ -34,10 +34,13 @@ jobs:
           unzip -q -o /tmp/clt.zip -d "$ANDROID_HOME/cmdline-tools/"
           rm -rf "$ANDROID_HOME/cmdline-tools/latest"
           mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-            'platforms;android-34' 'build-tools;34.0.0' 'platform-tools'
+          SM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          # 用 expect 式喂 yes（避免 `yes |` 的 broken pipe 在 pipefail 下误判失败）
+          printf 'y\ny\ny\ny\ny\ny\ny\ny\n' | "$SM" --licenses || true
+          "$SM" 'platforms;android-34' 'build-tools;34.0.0' 'platform-tools'
+          echo "=== 校验 SDK ==="
           ls -la "$ANDROID_HOME/platforms" "$ANDROID_HOME/build-tools"
+          test -f "$ANDROID_HOME/platforms/android-34/android.jar" && echo "android-34 OK"
 
       - name: Build Debug APK
         run: |
