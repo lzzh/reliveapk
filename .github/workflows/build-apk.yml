@@ -19,27 +19,25 @@ jobs:
         run: |
           set -euo pipefail
           echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
           echo "$ANDROID_HOME" >> $GITHUB_PATH
-          # 写 local.properties 指向 SDK
           echo "sdk.dir=${ANDROID_HOME}" > local.properties
-          cat local.properties
-          # 装 cmdline-tools
+          # 动态找当前可用的 cmdline-tools 版本号（Google 会轮换"latest"构建号）
+          CLT_VER=""
+          for v in 13114758 12700310 11076708 9477386; do
+            code=$(curl -sI -o /dev/null -w '%{http_code}' "https://dl.google.com/android/repository/commandlinetools-linux-${v}_latest.zip")
+            if [ "$code" = "200" ]; then CLT_VER=$v; break; fi
+          done
+          if [ -z "$CLT_VER" ]; then echo "No valid cmdline-tools version found"; exit 1; fi
+          echo "Using commandlinetools-linux-${CLT_VER}_latest.zip"
           mkdir -p "$ANDROID_HOME/cmdline-tools"
-          curl -fsSL 'https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip' -o /tmp/clt.zip
-          ls -lh /tmp/clt.zip
+          curl -fsSL "https://dl.google.com/android/repository/commandlinetools-linux-${CLT_VER}_latest.zip" -o /tmp/clt.zip
           unzip -q -o /tmp/clt.zip -d "$ANDROID_HOME/cmdline-tools/"
           rm -rf "$ANDROID_HOME/cmdline-tools/latest"
           mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
-          # 接受许可并安装必需组件
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-            'platforms;android-34' 'build-tools;34.0.0' 'platform-tools' --licenses || true
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
             'platforms;android-34' 'build-tools;34.0.0' 'platform-tools'
-          # 检查装好的 SDK
-          ls -la "$ANDROID_HOME"
-          ls -la "$ANDROID_HOME/platforms"
-          ls -la "$ANDROID_HOME/build-tools"
+          ls -la "$ANDROID_HOME/platforms" "$ANDROID_HOME/build-tools"
 
       - name: Build Debug APK
         run: |
