@@ -1,6 +1,8 @@
 package com.coomi.relive
 
-import android.content.Context
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -15,37 +17,30 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.lifecycle.viewmodel.viewModelFactory
 import java.text.SimpleDateFormat
 import java.util.*
 
 class MainActivity : ComponentActivity() {
 
-    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+    override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val ctx = this
         val client = ReliveClient(apiKey = "sk-relive-REDACTED-2")
-        val sample = loadSample(ctx)
-        val factory = viewModelFactory {
-            initializer { ReliveViewModelFactory.create(client, sample) }
-        }
-        androidx.activity.compose.setContent {
+        val sample = loadSample()
+        val vm = ReliveViewModel(client, sample)
+
+        setContent {
             MaterialTheme(colors = darkColors()) {
-                val vm: ReliveViewModel = viewModel(factory = factory)
                 ReliveScreen(vm)
             }
         }
     }
 
-    private fun loadSample(ctx: Context): ByteArray = try {
-        ctx.assets.open("sample/display.bin").use { it.readBytes() }
+    private fun loadSample(): ByteArray = try {
+        assets.open("sample/display.bin").use { it.readBytes() }
     } catch (_: Exception) {
-        // 没放 sample 就空数组，离线时屏幕会全黑（可接受）
         ByteArray(0)
     }
 }
@@ -76,7 +71,6 @@ fun ReliveScreen(vm: ReliveViewModel) {
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // 顶栏
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -90,7 +84,7 @@ fun ReliveScreen(vm: ReliveViewModel) {
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
                 )
-                if (isRefreshing.value) {
+                if (isRefreshing) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(18.dp),
                         color = Color.White,
@@ -99,7 +93,6 @@ fun ReliveScreen(vm: ReliveViewModel) {
                 }
             }
 
-            // 主图区
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -125,14 +118,13 @@ fun ReliveScreen(vm: ReliveViewModel) {
                 }
             }
 
-            // 信息条
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (error.value != null) {
+                if (error != null) {
                     Icon(
                         Icons.Default.WifiOff,
                         contentDescription = null,
@@ -147,7 +139,7 @@ fun ReliveScreen(vm: ReliveViewModel) {
                     )
                 } else {
                     Text(
-                        text = "asset ${assetId} · 刷新 ${formatTime(lastRefreshMs.value)}",
+                        text = "asset ${assetId} · 刷新 ${formatTime(lastRefreshMs)}",
                         color = Color.Gray,
                         fontSize = 12.sp
                     )
