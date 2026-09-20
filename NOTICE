@@ -1,0 +1,14 @@
+This app is a third-party Android client for the Relive photo memory system.
+
+Relive
+  https://github.com/davidhoo/relive
+  Copyright (c) 2026 David Hu
+  Licensed under the MIT License (https://opensource.org/licenses/MIT).
+
+This repository is NOT part of the official Relive project.
+It implements Relive's device protocol (display.bin 4-bit stream, JSON
+device API) independently in Kotlin; no source code was copied from the
+Relive backend.
+
+The app icon is taken from the Relive project and used here under the
+terms of that MIT License.

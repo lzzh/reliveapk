@@ -211,3 +211,14 @@ relive-photo-app/
   卸载重装或用系统「清除应用数据」清零即可。
 - 服务端切换 RenderProfile 后，需在 Relive 后台**触发一次展示批次生成**才会产出新资产。
 - 每次刷新会拉一次原图（实测约 19MB），30 分钟一次 ≈ 一天 1GB 量级，注意流量。
+
+## 许可与致谢
+
+本 App 是 [Relive](https://github.com/davidhoo/relive) 的**第三方配套客户端**（非官方出品）。
+
+- Relive 项目及其图标：**MIT License**，Copyright © 2026 [David Hu](https://github.com/davidhoo)
+  （本仓库根目录的 [`NOTICE`](NOTICE) 文件保留了其版权与许可声明）
+- 本仓库的 App 代码：在 MIT 允许范围内独立实现，未复制 Relive 后端源码；
+  你可以在遵守 MIT 的前提下自由使用、修改、分发本 App
+
+感谢 David Hu 开源了这么好的照片回忆系统。
