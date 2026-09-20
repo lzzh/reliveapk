@@ -8,12 +8,17 @@ import java.util.concurrent.TimeUnit
  * 极简客户端，调 Relive 设备端展示接口。
  *
  *  拉取：GET {baseUrl}/api/v1/device/display.bin，Header `X-API-Key`
- *  返回：[ReliveDisplay]（4-bit 双像素流 + assetId + 服务端时间）
+ *  返回：[ReliveDisplay]（4-bit 双像素流 + 元数据 + 渲染规格）
+ *
+ *  apiKey 可在运行时更新（设置页填入）。
  */
 class ReliveClient(
     private val baseUrl: String = DEFAULT_BASE,
-    private val apiKey: String
+    apiKey: String
 ) {
+
+    @Volatile
+    var apiKey: String = apiKey
 
     data class ReliveDisplay(
         val bytes: ByteArray,

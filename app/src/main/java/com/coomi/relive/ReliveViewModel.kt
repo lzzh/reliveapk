@@ -1,6 +1,5 @@
 package com.coomi.relive
 
-import android.graphics.Bitmap
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.ViewModel
@@ -42,6 +41,12 @@ class ReliveViewModel(
         refresh()
     }
 
+    /** 运行时替换 API Key（设置页保存后调用），并立即重新拉取。 */
+    fun updateApiKey(newKey: String) {
+        client.apiKey = newKey
+        refresh()
+    }
+
     /** 拉一次网络；失败保留旧图并在 error 标记。 */
     fun refresh() {
         if (_isRefreshing.value) return
@@ -65,7 +70,7 @@ class ReliveViewModel(
     }
 }
 
-/** 离线兜底：解码内置 display.bin（Spectra6 全彩调色板，不旋转，保持竖版原样）。 */
+/** 离线兜底：解码内置 display.bin（Spectra6 全彩，还原为正的竖版 480×800）。 */
 private fun ByteArray.decodeSafely(): ImageBitmap? = try {
     EInkDecoder.decode(this, EInkDecoder.SPECTRA6).asImageBitmap()
 } catch (_: Throwable) {

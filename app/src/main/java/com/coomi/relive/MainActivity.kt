@@ -1,5 +1,7 @@
 package com.coomi.relive
 
+import android.content.Context
+import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -11,17 +13,19 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -32,25 +36,40 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.text.SimpleDateFormat
 import java.util.*
 
+private const val PREFS = "relive_prefs"
+private const val KEY_API = "api_key"
+const val DEFAULT_API_KEY = "sk-relive-REDACTED-1"
+
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 全屏沉浸：隐藏状态栏与导航栏，内容延伸到系统栏区域
+        // 全屏沉浸
         WindowCompat.setDecorFitsSystemWindows(window, false)
         val controller = WindowInsetsControllerCompat(window, window.decorView)
         controller.hide(WindowInsetsCompat.Type.systemBars())
         controller.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
-        val client = ReliveClient(apiKey = "sk-relive-REDACTED-1")
+        val savedKey = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_API, DEFAULT_API_KEY) ?: DEFAULT_API_KEY
+
+        val client = ReliveClient(apiKey = savedKey)
         val sample = loadSample()
         val vm = ReliveViewModel(client, sample)
 
         setContent {
             MaterialTheme(colors = darkColors()) {
-                ReliveScreen(vm)
+                ReliveScreen(
+                    vm = vm,
+                    initialKey = savedKey,
+                    onSaveKey = { newKey ->
+                        getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                            .edit().putString(KEY_API, newKey).apply()
+                        vm.updateApiKey(newKey)
+                    }
+                )
             }
         }
     }
@@ -63,15 +82,30 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun ReliveScreen(vm: ReliveViewModel) {
+fun ReliveScreen(
+    vm: ReliveViewModel,
+    initialKey: String,
+    onSaveKey: (String) -> Unit
+) {
     val display by vm.display.collectAsStateWithLifecycle()
     val assetId by vm.assetId.collectAsStateWithLifecycle()
     val isRefreshing by vm.isRefreshing.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
     val lastRefreshMs by vm.lastRefreshMs.collectAsStateWithLifecycle()
 
-    // 控件默认隐藏，点屏幕后显示
     var controlsVisible by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
+
+    // 设备方向：横屏 / 竖屏
+    val configuration = LocalConfiguration.current
+    val deviceLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+
+    // 方向不一致则旋转 90°，让图片跟随屏幕方向铺满
+    val oriented: ImageBitmap? = remember(display, deviceLandscape) {
+        val d = display ?: return@remember null
+        val imageLandscape = d.width > d.height
+        if (deviceLandscape != imageLandscape) d.rotate90() else d
+    }
 
     Box(
         modifier = Modifier
@@ -82,12 +116,12 @@ fun ReliveScreen(vm: ReliveViewModel) {
                 indication = null
             ) { controlsVisible = !controlsVisible }
     ) {
-        // 主图：全屏铺满（保持比例，居中）
-        if (display != null) {
+        if (oriented != null) {
+            // 铺满屏幕：Crop 裁切填满
             Image(
-                bitmap = display!!,
+                bitmap = oriented!!,
                 contentDescription = "往年今日照片",
-                contentScale = ContentScale.Fit,
+                contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
         } else {
@@ -99,7 +133,7 @@ fun ReliveScreen(vm: ReliveViewModel) {
             )
         }
 
-        // 顶部标题（仅控件可见时）
+        // 顶部栏（控件可见时）
         AnimatedVisibility(
             visible = controlsVisible,
             enter = fadeIn(),
@@ -120,17 +154,23 @@ fun ReliveScreen(vm: ReliveViewModel) {
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
                 )
-                if (isRefreshing) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        color = Color.White,
-                        strokeWidth = 2.dp
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isRefreshing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(Modifier.width(10.dp))
+                    }
+                    IconButton(onClick = { showSettings = true }) {
+                        Icon(Icons.Default.Settings, contentDescription = "设置", tint = Color.White)
+                    }
                 }
             }
         }
 
-        // 底部信息条（仅控件可见时）
+        // 底部信息条（控件可见时）
         AnimatedVisibility(
             visible = controlsVisible,
             enter = fadeIn(),
@@ -155,7 +195,7 @@ fun ReliveScreen(vm: ReliveViewModel) {
                     Text("离线，显示内置图", color = Color(0xFFFF5252), fontSize = 12.sp)
                 } else {
                     Text(
-                        text = "asset $assetId · 刷新 ${formatTime(lastRefreshMs)}",
+                        text = "asset $assetId · ${if (deviceLandscape) "横屏" else "竖屏"} · 刷新 ${formatTime(lastRefreshMs)}",
                         color = Color.Gray,
                         fontSize = 12.sp
                     )
@@ -163,7 +203,7 @@ fun ReliveScreen(vm: ReliveViewModel) {
             }
         }
 
-        // 刷新按钮（仅控件可见时，右下角）
+        // 刷新按钮（控件可见时，右下）
         AnimatedVisibility(
             visible = controlsVisible,
             enter = fadeIn(),
@@ -181,6 +221,50 @@ fun ReliveScreen(vm: ReliveViewModel) {
             }
         }
     }
+
+    if (showSettings) {
+        ApiKeyDialog(
+            current = initialKey,
+            onDismiss = { showSettings = false },
+            onSave = { k ->
+                onSaveKey(k.trim())
+                showSettings = false
+            }
+        )
+    }
+}
+
+@Composable
+private fun ApiKeyDialog(
+    current: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit
+) {
+    var text by remember { mutableStateOf(current) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("设置 API Key") },
+        text = {
+            Column {
+                Text("填入 Relive 设备 API Key：", fontSize = 13.sp)
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(6.dp))
+                Text("例：sk-relive-xxxxxxxx", fontSize = 11.sp, color = Color.Gray)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(text) }) { Text("保存") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
 }
 
 private fun formatTime(ms: Long): String =
