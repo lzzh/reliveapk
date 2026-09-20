@@ -3,6 +3,7 @@ package com.coomi.relive
 import android.content.Context
 import android.content.res.Configuration
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
@@ -37,6 +38,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 private const val PREFS = "relive_prefs"
+private const val KEY_BASE = "server_base"
 private const val KEY_API = "api_key"
 const val DEFAULT_API_KEY = "sk-relive-REDACTED-1"
 
@@ -52,10 +54,11 @@ class MainActivity : ComponentActivity() {
         controller.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
-        val savedKey = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_API, DEFAULT_API_KEY) ?: DEFAULT_API_KEY
+        val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val savedBase = prefs.getString(KEY_BASE, ReliveClient.DEFAULT_BASE) ?: ReliveClient.DEFAULT_BASE
+        val savedKey = prefs.getString(KEY_API, DEFAULT_API_KEY) ?: DEFAULT_API_KEY
 
-        val client = ReliveClient(apiKey = savedKey)
+        val client = ReliveClient(baseUrl = savedBase, apiKey = savedKey)
         val sample = loadSample()
         val vm = ReliveViewModel(client, sample)
 
@@ -63,11 +66,14 @@ class MainActivity : ComponentActivity() {
             MaterialTheme(colors = darkColors()) {
                 ReliveScreen(
                     vm = vm,
+                    initialBase = savedBase,
                     initialKey = savedKey,
-                    onSaveKey = { newKey ->
-                        getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                            .edit().putString(KEY_API, newKey).apply()
-                        vm.updateApiKey(newKey)
+                    onSaveConfig = { base, key ->
+                        prefs.edit()
+                            .putString(KEY_BASE, base)
+                            .putString(KEY_API, key)
+                            .apply()
+                        vm.applyConfig(base, key)
                     }
                 )
             }
@@ -84,14 +90,18 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun ReliveScreen(
     vm: ReliveViewModel,
+    initialBase: String,
     initialKey: String,
-    onSaveKey: (String) -> Unit
+    onSaveConfig: (String, String) -> Unit
 ) {
+    val context = LocalContext.current
+
     val display by vm.display.collectAsStateWithLifecycle()
     val assetId by vm.assetId.collectAsStateWithLifecycle()
     val isRefreshing by vm.isRefreshing.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
     val lastRefreshMs by vm.lastRefreshMs.collectAsStateWithLifecycle()
+    val conn by vm.conn.collectAsStateWithLifecycle()
 
     var controlsVisible by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
@@ -117,7 +127,6 @@ fun ReliveScreen(
             ) { controlsVisible = !controlsVisible }
     ) {
         if (oriented != null) {
-            // 铺满屏幕：Crop 裁切填满
             Image(
                 bitmap = oriented!!,
                 contentDescription = "往年今日照片",
@@ -163,7 +172,10 @@ fun ReliveScreen(
                         )
                         Spacer(Modifier.width(10.dp))
                     }
-                    IconButton(onClick = { showSettings = true }) {
+                    IconButton(onClick = {
+                        vm.resetConnTest()
+                        showSettings = true
+                    }) {
                         Icon(Icons.Default.Settings, contentDescription = "设置", tint = Color.White)
                     }
                 }
@@ -223,46 +235,91 @@ fun ReliveScreen(
     }
 
     if (showSettings) {
-        ApiKeyDialog(
-            current = initialKey,
-            onDismiss = { showSettings = false },
-            onSave = { k ->
-                onSaveKey(k.trim())
+        SettingsDialog(
+            currentBase = initialBase,
+            currentKey = initialKey,
+            conn = conn,
+            onTest = { base, key -> vm.testConfig(base, key) },
+            onSave = { base, key ->
+                onSaveConfig(base, key)
                 showSettings = false
-            }
+                Toast.makeText(context, "已保存并刷新", Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = { showSettings = false }
         )
     }
 }
 
 @Composable
-private fun ApiKeyDialog(
-    current: String,
-    onDismiss: () -> Unit,
-    onSave: (String) -> Unit
+private fun SettingsDialog(
+    currentBase: String,
+    currentKey: String,
+    conn: ConnTest,
+    onTest: (String, String) -> Unit,
+    onSave: (String, String) -> Unit,
+    onDismiss: () -> Unit
 ) {
-    var text by remember { mutableStateOf(current) }
+    var base by remember { mutableStateOf(currentBase) }
+    var key by remember { mutableStateOf(currentKey) }
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("设置 API Key") },
+        title = { Text("设置") },
         text = {
             Column {
-                Text("填入 Relive 设备 API Key：", fontSize = 13.sp)
-                Spacer(Modifier.height(8.dp))
+                Text("服务器地址", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(4.dp))
                 OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
+                    value = base,
+                    onValueChange = { base = it },
                     singleLine = true,
+                    placeholder = { Text("https://relive.example.com") },
                     modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(Modifier.height(6.dp))
-                Text("例：sk-relive-xxxxxxxx", fontSize = 11.sp, color = Color.Gray)
+
+                Spacer(Modifier.height(12.dp))
+
+                Text("API Key", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = key,
+                    onValueChange = { key = it },
+                    singleLine = true,
+                    placeholder = { Text("sk-relive-xxxxxxxx") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                when {
+                    conn.testing -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("测试中…", fontSize = 13.sp)
+                    }
+                    conn.message != null -> Text(
+                        text = (if (conn.ok == true) "✓ " else "✗ ") + conn.message,
+                        color = if (conn.ok == true) Color(0xFF2E7D32) else Color(0xFFC62828),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(text) }) { Text("保存") }
+            TextButton(
+                enabled = !conn.testing,
+                onClick = { onTest(base.trim(), key.trim()) }
+            ) { Text("测试连接") }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            Row {
+                TextButton(onClick = onDismiss) { Text("取消") }
+                TextButton(
+                    enabled = !conn.testing,
+                    onClick = { onSave(base.trim(), key.trim()) }
+                ) { Text("保存") }
+            }
         }
     )
 }

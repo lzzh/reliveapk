@@ -12,6 +12,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/** 设置页"测试连接"的状态。 */
+data class ConnTest(
+    val testing: Boolean = false,
+    val ok: Boolean? = null,
+    val message: String? = null
+)
+
 class ReliveViewModel(
     private val client: ReliveClient,
     sampleBytes: ByteArray
@@ -37,13 +44,33 @@ class ReliveViewModel(
     private val _lastRefreshMs = MutableStateFlow(0L)
     val lastRefreshMs: StateFlow<Long> = _lastRefreshMs.asStateFlow()
 
+    private val _conn = MutableStateFlow(ConnTest())
+    val conn: StateFlow<ConnTest> = _conn.asStateFlow()
+
     init {
         refresh()
     }
 
-    /** 运行时替换 API Key（设置页保存后调用），并立即重新拉取。 */
-    fun updateApiKey(newKey: String) {
-        client.apiKey = newKey
+    /** 设置页：测试给定地址 + Key（用临时客户端，不影响当前配置）。 */
+    fun testConfig(baseUrl: String, apiKey: String) {
+        _conn.value = ConnTest(testing = true)
+        scope.launch {
+            val res = withContext(Dispatchers.IO) {
+                ReliveClient(baseUrl = baseUrl, apiKey = apiKey).testConnection()
+            }
+            _conn.value = ConnTest(testing = false, ok = res.ok, message = res.message)
+        }
+    }
+
+    /** 清空测试状态（打开设置页时）。 */
+    fun resetConnTest() {
+        _conn.value = ConnTest()
+    }
+
+    /** 应用新配置并立即重新拉取。 */
+    fun applyConfig(baseUrl: String, apiKey: String) {
+        client.baseUrl = baseUrl
+        client.apiKey = apiKey
         refresh()
     }
 

@@ -5,17 +5,19 @@ import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
 /**
- * 极简客户端，调 Relive 设备端展示接口。
+ * Relive 设备端客户端。
  *
- *  拉取：GET {baseUrl}/api/v1/device/display.bin，Header `X-API-Key`
- *  返回：[ReliveDisplay]（4-bit 双像素流 + 元数据 + 渲染规格）
- *
- *  apiKey 可在运行时更新（设置页填入）。
+ *  - 拉取：GET {baseUrl}/api/v1/device/display.bin，Header `X-API-Key`
+ *  - [baseUrl] / [apiKey] 均可在运行时更新（设置页填入）
+ *  - [testConnection] 用于设置页"测试连接"
  */
 class ReliveClient(
-    private val baseUrl: String = DEFAULT_BASE,
+    baseUrl: String = DEFAULT_BASE,
     apiKey: String
 ) {
+
+    @Volatile
+    var baseUrl: String = baseUrl
 
     @Volatile
     var apiKey: String = apiKey
@@ -28,16 +30,71 @@ class ReliveClient(
         val renderProfile: String
     )
 
+    /** 连接测试结果。 */
+    data class TestResult(val ok: Boolean, val message: String)
+
     private val http: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    /** 同步拉一次。供 [ReliveViewModel] 在 IO 协程里调用。 */
+    /**
+     * 测试服务器地址 + API Key 是否可用。
+     * 先用 HEAD（轻量）探测；服务端不支持 HEAD 时回退 GET。
+     */
+    fun testConnection(): TestResult {
+        val base = baseUrl.trim().trimEnd('/')
+        if (base.isEmpty()) return TestResult(false, "失败：服务器地址为空")
+        if (!base.startsWith("http://") && !base.startsWith("https://")) {
+            return TestResult(false, "失败：地址需以 http:// 或 https:// 开头")
+        }
+        if (apiKey.trim().isEmpty()) return TestResult(false, "失败：API Key 为空")
+
+        val url = base + DISPLAY_BIN
+
+        // 1) 先试 HEAD
+        try {
+            val head = Request.Builder()
+                .url(url)
+                .header("X-API-Key", apiKey.trim())
+                .head()
+                .build()
+            http.newCall(head).execute().use { resp ->
+                when {
+                    resp.isSuccessful -> {
+                        val p = resp.header("X-Render-Profile")
+                        return TestResult(true, "连接成功" + if (!p.isNullOrEmpty()) " · 规格 $p" else "")
+                    }
+                    resp.code == 401 || resp.code == 403 ->
+                        return TestResult(false, "失败：API Key 无效（HTTP ${resp.code}）")
+                    resp.code == 404 ->
+                        return TestResult(false, "失败：接口不存在（HTTP 404），请检查服务器地址")
+                    resp.code == 405 || resp.code == 501 || resp.code == 400 -> {
+                        // 不支持 HEAD，回退 GET
+                    }
+                    else ->
+                        return TestResult(false, "失败：HTTP ${resp.code} ${resp.message}")
+                }
+            }
+        } catch (_: Throwable) {
+            // 忽略，走 GET 兜底
+        }
+
+        // 2) GET 兜底
+        return try {
+            val r = fetchDisplayBlocking()
+            TestResult(true, "连接成功 · 规格 ${r.renderProfile} · ${r.bytes.size} 字节")
+        } catch (t: Throwable) {
+            TestResult(false, "失败：${t.localizedMessage ?: t.message ?: "未知错误"}")
+        }
+    }
+
+    /** 同步拉一次展示位图。供 [ReliveViewModel] 在 IO 协程里调用。 */
     fun fetchDisplayBlocking(): ReliveDisplay {
+        val url = baseUrl.trim().trimEnd('/') + DISPLAY_BIN
         val req = Request.Builder()
-            .url(baseUrl.trimEnd('/') + DISPLAY_BIN)
-            .header("X-API-Key", apiKey)
+            .url(url)
+            .header("X-API-Key", apiKey.trim())
             .get()
             .build()
         return http.newCall(req).execute().use { resp ->
