@@ -147,6 +147,24 @@ class ReliveClient(
         }
     }
 
+    /**
+     * 按 asset_id 取该「展示资产」的 480×800 4-bit 位图。
+     * 用 asset_id 而非 /device/display.bin：后者每次调用会让推荐序号前进，
+     * 导致照片与文字条不是同一张。
+     */
+    fun fetchAssetBin(assetId: Long): ByteArray {
+        val req = Request.Builder()
+            .url("${base()}/api/v1/display/assets/$assetId/bin?_t=${stamp()}")
+            .header("X-API-Key", apiKey.trim())
+            .header("Cache-Control", "no-cache")
+            .get()
+            .build()
+        return http.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) throw RuntimeException("Relive ${resp.code}: ${resp.message}")
+            resp.body!!.bytes()
+        }
+    }
+
     // ---------------- 连接测试 ----------------
 
     /**

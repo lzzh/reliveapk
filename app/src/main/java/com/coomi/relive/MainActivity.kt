@@ -15,6 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -43,6 +44,8 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -146,8 +149,11 @@ fun ReliveScreen(
     val configuration = LocalConfiguration.current
     val deviceLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
+    val fullBleedPhoto by vm.fullBleedPhoto.collectAsStateWithLifecycle()
+    val fullBleedBand by vm.fullBleedBand.collectAsStateWithLifecycle()
+
     // 相框模式：图含文字，方向不一致时旋转 90° 以保证文字可读
-    // 原图模式：不含文字，直接居中裁切铺满，不旋转
+    // 原图模式：由 PageComposer 按屏幕尺寸排版（照片 + 留白文字条）
     val oriented: ImageBitmap? = remember(display, deviceLandscape, layoutMode) {
         val d = display ?: return@remember null
         if (layoutMode == LayoutMode.FRAMED) {
@@ -158,6 +164,9 @@ fun ReliveScreen(
         }
     }
 
+    // 横版铺满模式：按容器实际像素尺寸合成
+    var pageBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -167,7 +176,32 @@ fun ReliveScreen(
                 indication = null
             ) { controlsVisible = !controlsVisible }
     ) {
-        if (oriented != null) {
+        if (layoutMode == LayoutMode.FULLBLEED && fullBleedPhoto != null) {
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val wPx = constraints.maxWidth
+                val hPx = constraints.maxHeight
+                LaunchedEffect(fullBleedPhoto, fullBleedBand, wPx, hPx) {
+                    pageBitmap = withContext(Dispatchers.Default) {
+                        PageComposer.compose(fullBleedPhoto!!, fullBleedBand, wPx, hPx)
+                    }
+                }
+                val pb = pageBitmap
+                if (pb != null) {
+                    Image(
+                        bitmap = pb,
+                        contentDescription = "往年今日照片",
+                        contentScale = ContentScale.FillBounds,
+                        filterQuality = FilterQuality.Medium,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    CircularProgressIndicator(
+                        modifier = Modifier.align(Alignment.Center),
+                        color = Color.White
+                    )
+                }
+            }
+        } else if (oriented != null) {
             Image(
                 bitmap = oriented!!,
                 contentDescription = "往年今日照片",
@@ -374,7 +408,7 @@ private fun SettingsDialog(
                     onSelect = { layout = LayoutMode.FRAMED }
                 )
                 LayoutOption(
-                    label = "横版铺满（用原图，无文字，最沉浸）",
+                    label = "横版铺满（原图 + 留白文字，无裁切）",
                     selected = layout == LayoutMode.FULLBLEED,
                     onSelect = { layout = LayoutMode.FULLBLEED }
                 )

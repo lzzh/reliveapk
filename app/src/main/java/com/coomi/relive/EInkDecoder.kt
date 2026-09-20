@@ -26,6 +26,9 @@ object EInkDecoder {
     /** 单帧字节数（4-bit 双像素）。 */
     const val FRAME_BYTES = STREAM_W * STREAM_H / PIXELS_PER_BYTE   // 192000
 
+    /** 相框底部信息区（文字条）高度，与 Relive 源码 displayInfoHeight 一致。 */
+    const val INFO_BAND_HEIGHT = 160
+
     /** 墨水屏原色（暗，贴近真实 Spectra6）。 */
     val SPECTRA6_EINK: IntArray = intArrayOf(
         0xFF000000.toInt(), 0xFFFFFFFF.toInt(),
@@ -64,6 +67,35 @@ object EInkDecoder {
     /** 安全取色：索引越界（如 nibble 8..15 或调色板缺项）时兜底为黑色，绝不崩溃。 */
     private fun safe(palette: IntArray, index: Int): Int =
         if (index in palette.indices) palette[index] else 0xFF000000.toInt()
+
+    /**
+     * 只解码相框**底部信息区**（文字条）：480×[INFO_BAND_HEIGHT]，纯白底黑字。
+     * 服务端把文案 + 日期渲染在这条里，App 复用它做留白区文字。
+     */
+    fun decodeInfoBand(data: ByteArray, palette: IntArray = SPECTRA6_EINK): Bitmap {
+        require(data.size >= FRAME_BYTES) { "display.bin too short: ${data.size} < $FRAME_BYTES" }
+
+        val landscape = IntArray(STREAM_W * STREAM_H)
+        var i = 0
+        var idx = 0
+        while (i < landscape.size) {
+            val b = data[idx++].toInt() and 0xFF
+            landscape[i++] = safe(palette, (b shr 4) and 0x0F)
+            landscape[i++] = safe(palette, b and 0x0F)
+        }
+
+        // 目标 y 区间：[HEIGHT - INFO_BAND_HEIGHT, HEIGHT)
+        val y0 = HEIGHT - INFO_BAND_HEIGHT
+        val out = IntArray(WIDTH * INFO_BAND_HEIGHT)
+        for (y in y0 until HEIGHT) {
+            val srcCol = STREAM_W - 1 - y
+            val rowBase = (y - y0) * WIDTH
+            for (x in 0 until WIDTH) {
+                out[rowBase + x] = landscape[x * STREAM_W + srcCol]
+            }
+        }
+        return Bitmap.createBitmap(out, WIDTH, INFO_BAND_HEIGHT, Bitmap.Config.ARGB_8888)
+    }
 
     /**
      * 解码为正的竖版 480×800 位图。

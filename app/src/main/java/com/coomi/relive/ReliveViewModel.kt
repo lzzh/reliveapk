@@ -2,6 +2,7 @@ package com.coomi.relive
 
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -65,6 +66,13 @@ class ReliveViewModel(
     /** 布局模式。 */
     private val _layoutMode = MutableStateFlow(LayoutMode.FRAMED)
     val layoutMode: StateFlow<LayoutMode> = _layoutMode.asStateFlow()
+
+    /** 横版铺满模式的照片与文字条（由 MainActivity 按屏幕尺寸合成）。 */
+    private val _fullBleedPhoto = MutableStateFlow<ImageBitmap?>(null)
+    val fullBleedPhoto: StateFlow<ImageBitmap?> = _fullBleedPhoto.asStateFlow()
+
+    private val _fullBleedBand = MutableStateFlow<ImageBitmap?>(null)
+    val fullBleedBand: StateFlow<ImageBitmap?> = _fullBleedBand.asStateFlow()
 
     /** 相框模式最近一次原始字节（切换配色时本地重解码，免重下载）。 */
     @Volatile
@@ -149,14 +157,30 @@ class ReliveViewModel(
     }
 
     private suspend fun refreshFullBleed() {
+        // 一次 JSON：拿到同一张的 photo_id + asset_id（避免序号前进导致图/文不一致）
         val info = withContext(Dispatchers.IO) { client.fetchDeviceDisplayInfo() }
         if (info.photoId <= 0) throw RuntimeException("未取到推荐照片")
-        val bytes = withContext(Dispatchers.IO) { client.fetchPhotoImageBytes(info.photoId) }
-        val bmp = withContext(Dispatchers.IO) { bytes.decodeDownsampled(2048) }
+
+        val photoBytes = withContext(Dispatchers.IO) { client.fetchPhotoImageBytes(info.photoId) }
+        val photo = withContext(Dispatchers.IO) { photoBytes.decodeDownsampled(2048) }
             ?: throw RuntimeException("原图解码失败")
-        _display.value = bmp
+        _fullBleedPhoto.value = photo
+
+        // 文字条来自同一 asset 的 480×800 相框底部 160px
+        val band = try {
+            val frameBytes = withContext(Dispatchers.IO) { client.fetchAssetBin(info.assetId) }
+            withContext(Dispatchers.IO) {
+                EInkDecoder.decodeInfoBand(frameBytes).asImageBitmap()
+            }
+        } catch (_: Throwable) {
+            null
+        }
+        _fullBleedBand.value = band
+
         _assetId.value = "photo ${info.photoId}"
         _serverTimeSec.value = 0L
+        // 同时给出一个整图兜底（未合成时也能显示）
+        _display.value = photo
     }
 }
 
