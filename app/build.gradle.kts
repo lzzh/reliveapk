@@ -10,8 +10,11 @@ android {
         applicationId = "com.coomi.relive"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        // 版本号可由 CI 传入（-PversionCode / -PversionName），默认从 git 时间戳派生，保证每次构建唯一递增
+        versionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull()
+            ?: (System.currentTimeMillis() / 1000L).toInt()
+        versionName = (project.findProperty("versionName") as String?)
+            ?: "1.0-${Runtime.getRuntime().availableProcessors()}"
     }
     buildFeatures { compose = true }
     composeOptions { kotlinCompilerExtensionVersion = "1.5.10" }

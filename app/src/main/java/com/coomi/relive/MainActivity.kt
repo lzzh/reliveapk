@@ -304,6 +304,20 @@ private fun SettingsDialog(
                     .verticalScroll(rememberScrollState())
             ) {
                 Text("设置", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                // 显示当前 App 版本号，方便确认是否为最新构建
+                val appVersion = remember {
+                    try {
+                        val ctx = LocalContext.current
+                        val pkg = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
+                        "v${pkg.versionName} (code ${pkg.versionCode})"
+                    } catch (_: Throwable) { "unknown" }
+                }
+                Text(
+                    text = "版本 $appVersion",
+                    color = Color(0xFF9E9E9E),
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
                 Spacer(Modifier.height(16.dp))
 
                 Text("服务器地址", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
