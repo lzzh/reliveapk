@@ -15,9 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -53,7 +51,6 @@ private const val PREFS = "relive_prefs"
 private const val KEY_BASE = "server_base"
 private const val KEY_API = "api_key"
 private const val KEY_SCREEN_COLORS = "screen_colors"
-private const val KEY_LAYOUT = "layout_mode"
 
 /** 规范化服务器地址：去空格、补协议、去尾部斜杠。 */
 fun normalizeBase(raw: String): String {
@@ -77,18 +74,15 @@ class MainActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val savedBase = prefs.getString(KEY_BASE, ReliveClient.DEFAULT_BASE) ?: ReliveClient.DEFAULT_BASE
+        // 通用版：服务器地址与 API Key 均无默认值，由用户填写
+        val savedBase = prefs.getString(KEY_BASE, "") ?: ""
         val savedKey = prefs.getString(KEY_API, "") ?: ""
         val savedScreenColors = prefs.getBoolean(KEY_SCREEN_COLORS, false)
-        val savedLayout = runCatching {
-            LayoutMode.valueOf(prefs.getString(KEY_LAYOUT, LayoutMode.FRAMED.name)!!)
-        }.getOrDefault(LayoutMode.FRAMED)
 
         val client = ReliveClient(baseUrl = savedBase, apiKey = savedKey)
         val sample = loadSample()
         val vm = ReliveViewModel(client, sample)
         vm.setScreenColors(savedScreenColors)
-        vm.setLayoutMode(savedLayout)
 
         setContent {
             MaterialTheme(colors = darkColors()) {
@@ -97,18 +91,15 @@ class MainActivity : ComponentActivity() {
                     initialBase = savedBase,
                     initialKey = savedKey,
                     initialScreenColors = savedScreenColors,
-                    initialLayout = savedLayout,
-                    firstRun = savedKey.isBlank(),
-                    onSaveConfig = { base, key, screenColors, layout ->
+                    firstRun = savedBase.isBlank() || savedKey.isBlank(),
+                    onSaveConfig = { base, key, screenColors ->
                         prefs.edit()
                             .putString(KEY_BASE, base)
                             .putString(KEY_API, key)
                             .putBoolean(KEY_SCREEN_COLORS, screenColors)
-                            .putString(KEY_LAYOUT, layout.name)
                             .apply()
                         vm.applyConfig(base, key)
                         vm.setScreenColors(screenColors)
-                        vm.setLayoutMode(layout)
                     }
                 )
             }
@@ -128,44 +119,35 @@ fun ReliveScreen(
     initialBase: String,
     initialKey: String,
     initialScreenColors: Boolean,
-    initialLayout: LayoutMode,
     firstRun: Boolean,
-    onSaveConfig: (String, String, Boolean, LayoutMode) -> Unit
+    onSaveConfig: (String, String, Boolean) -> Unit
 ) {
     val context = LocalContext.current
 
     val display by vm.display.collectAsStateWithLifecycle()
+    val photo by vm.photo.collectAsStateWithLifecycle()
+    val band by vm.band.collectAsStateWithLifecycle()
     val assetId by vm.assetId.collectAsStateWithLifecycle()
     val isRefreshing by vm.isRefreshing.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
     val lastRefreshMs by vm.lastRefreshMs.collectAsStateWithLifecycle()
     val conn by vm.conn.collectAsStateWithLifecycle()
     val screenColors by vm.screenColors.collectAsStateWithLifecycle()
-    val layoutMode by vm.layoutMode.collectAsStateWithLifecycle()
 
     var controlsVisible by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(firstRun) }
+    var pageBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
 
     val configuration = LocalConfiguration.current
     val deviceLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-    val fullBleedPhoto by vm.fullBleedPhoto.collectAsStateWithLifecycle()
-    val fullBleedBand by vm.fullBleedBand.collectAsStateWithLifecycle()
-
-    // 相框模式：图含文字，方向不一致时旋转 90° 以保证文字可读
-    // 原图模式：由 PageComposer 按屏幕尺寸排版（照片 + 留白文字条）
-    val oriented: ImageBitmap? = remember(display, deviceLandscape, layoutMode) {
+    // 相框兜底：方向不一致时旋转 90°
+    val frameOriented: ImageBitmap? = remember(display, deviceLandscape, photo) {
         val d = display ?: return@remember null
-        if (layoutMode == LayoutMode.FRAMED) {
-            val imageLandscape = d.width > d.height
-            if (deviceLandscape != imageLandscape) d.rotate90() else d
-        } else {
-            d
-        }
+        if (photo != null) return@remember null
+        val imageLandscape = d.width > d.height
+        if (deviceLandscape != imageLandscape) d.rotate90() else d
     }
-
-    // 横版铺满模式：按容器实际像素尺寸合成
-    var pageBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
 
     Box(
         modifier = Modifier
@@ -176,13 +158,15 @@ fun ReliveScreen(
                 indication = null
             ) { controlsVisible = !controlsVisible }
     ) {
-        if (layoutMode == LayoutMode.FULLBLEED && fullBleedPhoto != null) {
+        if (photo != null) {
+            // 原图 + 白边文字：由 PageComposer 按「照片自身横竖」自动排版
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 val wPx = constraints.maxWidth
                 val hPx = constraints.maxHeight
-                LaunchedEffect(fullBleedPhoto, fullBleedBand, wPx, hPx) {
+                LaunchedEffect(photo, band, wPx, hPx) {
+                    val p = photo ?: return@LaunchedEffect
                     pageBitmap = withContext(Dispatchers.Default) {
-                        PageComposer.compose(fullBleedPhoto!!, fullBleedBand, wPx, hPx)
+                        PageComposer.compose(p, band, wPx, hPx)
                     }
                 }
                 val pb = pageBitmap
@@ -201,9 +185,9 @@ fun ReliveScreen(
                     )
                 }
             }
-        } else if (oriented != null) {
+        } else if (frameOriented != null) {
             Image(
-                bitmap = oriented!!,
+                bitmap = frameOriented!!,
                 contentDescription = "往年今日照片",
                 contentScale = ContentScale.Crop,
                 filterQuality = FilterQuality.None,
@@ -211,9 +195,10 @@ fun ReliveScreen(
             )
         } else {
             Text(
-                text = "无数据\n点屏幕 → ⚙ 设置 API Key",
+                text = "尚未配置\n点屏幕 → ⚙ 填写服务器地址与 API Key",
                 color = Color.White,
                 fontSize = 14.sp,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 modifier = Modifier.align(Alignment.Center)
             )
         }
@@ -278,11 +263,15 @@ fun ReliveScreen(
                         tint = Color(0xFFFF5252)
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text("离线，显示内置图", color = Color(0xFFFF5252), fontSize = 12.sp)
-                } else {
-                    val modeText = if (layoutMode == LayoutMode.FRAMED) "相框竖版" else "原图铺满"
                     Text(
-                        text = "$modeText · $assetId · ${if (deviceLandscape) "横屏" else "竖屏"} · 刷新 ${formatTime(lastRefreshMs)}",
+                        text = error!!,
+                        color = Color(0xFFFF5252),
+                        fontSize = 12.sp,
+                        maxLines = 1
+                    )
+                } else {
+                    Text(
+                        text = "$assetId · ${if (deviceLandscape) "横屏" else "竖屏"} · 刷新 ${formatTime(lastRefreshMs)}",
                         color = Color(0xFFB0B0B0),
                         fontSize = 12.sp
                     )
@@ -313,11 +302,10 @@ fun ReliveScreen(
             currentBase = initialBase,
             currentKey = initialKey,
             currentScreenColors = screenColors,
-            currentLayout = layoutMode,
             conn = conn,
             onTest = { base, key -> vm.testConfig(base, key) },
-            onSave = { base, key, sc, layout ->
-                onSaveConfig(base, key, sc, layout)
+            onSave = { base, key, sc ->
+                onSaveConfig(base, key, sc)
                 showSettings = false
                 Toast.makeText(context, "已保存并刷新", Toast.LENGTH_SHORT).show()
             },
@@ -335,16 +323,14 @@ private fun SettingsDialog(
     currentBase: String,
     currentKey: String,
     currentScreenColors: Boolean,
-    currentLayout: LayoutMode,
     conn: ConnTest,
     onTest: (String, String) -> Unit,
-    onSave: (String, String, Boolean, LayoutMode) -> Unit,
+    onSave: (String, String, Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
     var base by remember { mutableStateOf(currentBase) }
     var key by remember { mutableStateOf(currentKey) }
     var screenColors by remember { mutableStateOf(currentScreenColors) }
-    var layout by remember { mutableStateOf(currentLayout) }
 
     val fieldColors = TextFieldDefaults.outlinedTextFieldColors(
         textColor = Color.White,
@@ -379,7 +365,7 @@ private fun SettingsDialog(
                     value = base,
                     onValueChange = { base = it },
                     singleLine = true,
-                    placeholder = { Text("relive.example.com", color = Color(0xFF808080)) },
+                    placeholder = { Text("https://relive.example.com", color = Color(0xFF808080)) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                     colors = fieldColors,
                     modifier = Modifier.fillMaxWidth()
@@ -398,22 +384,15 @@ private fun SettingsDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(Modifier.height(18.dp))
+                Spacer(Modifier.height(8.dp))
 
-                Text("展示布局", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(2.dp))
-                LayoutOption(
-                    label = "相框竖版（含日期/文案，480×800）",
-                    selected = layout == LayoutMode.FRAMED,
-                    onSelect = { layout = LayoutMode.FRAMED }
-                )
-                LayoutOption(
-                    label = "横版铺满（原图 + 留白文字，无裁切）",
-                    selected = layout == LayoutMode.FULLBLEED,
-                    onSelect = { layout = LayoutMode.FULLBLEED }
+                Text(
+                    text = "在 Relive 后台「设备管理」创建 embedded 设备可获得 API Key",
+                    color = Color(0xFF9E9E9E),
+                    fontSize = 11.sp
                 )
 
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(14.dp))
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(
@@ -426,7 +405,7 @@ private fun SettingsDialog(
                         )
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text("屏幕鲜艳配色（仅相框模式）", color = Color.White, fontSize = 13.sp)
+                    Text("屏幕鲜艳配色（仅回退模式）", color = Color.White, fontSize = 13.sp)
                 }
 
                 Spacer(Modifier.height(8.dp))
@@ -468,7 +447,7 @@ private fun SettingsDialog(
                     Spacer(Modifier.width(4.dp))
                     TextButton(
                         enabled = !conn.testing,
-                        onClick = { onSave(normalizeBase(base), key.trim(), screenColors, layout) }
+                        onClick = { onSave(normalizeBase(base), key.trim(), screenColors) }
                     ) { Text("保存", color = Color(0xFF40C4FF), fontWeight = FontWeight.Bold) }
                     Spacer(Modifier.width(4.dp))
                     TextButton(
@@ -478,28 +457,6 @@ private fun SettingsDialog(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun LayoutOption(label: String, selected: Boolean, onSelect: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .selectable(selected = selected, onClick = onSelect)
-            .padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        RadioButton(
-            selected = selected,
-            onClick = onSelect,
-            colors = RadioButtonDefaults.colors(
-                selectedColor = Color(0xFF40C4FF),
-                unselectedColor = Color(0xFF9E9E9E)
-            )
-        )
-        Spacer(Modifier.width(4.dp))
-        Text(label, color = Color.White, fontSize = 13.sp)
     }
 }
 

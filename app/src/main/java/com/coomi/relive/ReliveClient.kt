@@ -208,7 +208,8 @@ class ReliveClient(
     }
 
     companion object {
-        const val DEFAULT_BASE = "https://relive.luckyson.online"
+        /** 通用版：不预设任何服务器地址，由用户在设置页填写。 */
+        const val DEFAULT_BASE = ""
         const val DISPLAY_BIN = "/api/v1/device/display.bin"
         const val DEVICE_DISPLAY = "/api/v1/device/display"
     }
