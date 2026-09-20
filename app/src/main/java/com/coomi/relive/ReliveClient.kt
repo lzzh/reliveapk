@@ -19,7 +19,8 @@ class ReliveClient(
         val bytes: ByteArray,
         val assetId: String,
         val serverTimeSec: Long,
-        val checksum: String?
+        val checksum: String?,
+        val renderProfile: String
     )
 
     private val http: OkHttpClient = OkHttpClient.Builder()
@@ -40,7 +41,8 @@ class ReliveClient(
                 bytes = resp.body!!.bytes(),
                 assetId = resp.header("X-Asset-ID") ?: "",
                 serverTimeSec = resp.header("X-Server-Time")?.toLongOrNull() ?: 0L,
-                checksum = resp.header("X-Checksum")
+                checksum = resp.header("X-Checksum"),
+                renderProfile = resp.header("X-Render-Profile") ?: "spectra6_480x800"
             )
         }
     }

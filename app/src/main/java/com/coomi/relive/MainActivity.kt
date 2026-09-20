@@ -27,7 +27,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val client = ReliveClient(apiKey = "sk-relive-REDACTED-2")
+        val client = ReliveClient(apiKey = "sk-relive-REDACTED-1")
         val sample = loadSample()
         val vm = ReliveViewModel(client, sample)
 

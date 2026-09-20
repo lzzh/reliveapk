@@ -1,8 +1,8 @@
 package com.coomi.relive
 
 import android.graphics.Bitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -20,7 +20,7 @@ class ReliveViewModel(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
-    private val _display = MutableStateFlow<ImageBitmap?>(sampleBytes.decodeSafely())
+    private val _display = MutableStateFlow<ImageBitmap?>(sampleBytes.decodeRotatedSafely())
     val display: StateFlow<ImageBitmap?> = _display.asStateFlow()
 
     private val _assetId = MutableStateFlow("")
@@ -50,7 +50,7 @@ class ReliveViewModel(
         scope.launch {
             try {
                 val r = withContext(Dispatchers.IO) { client.fetchDisplayBlocking() }
-                val bmp = withContext(Dispatchers.IO) { EInkDecoder.decode(r.bytes) }
+                val bmp = withContext(Dispatchers.IO) { EInkDecoder.decodeRotated90(r.bytes) }
                 _display.value = bmp.asImageBitmap()
                 _assetId.value = r.assetId
                 _serverTimeSec.value = r.serverTimeSec
@@ -65,8 +65,9 @@ class ReliveViewModel(
     }
 }
 
-private fun ByteArray.decodeSafely(): ImageBitmap? = try {
-    EInkDecoder.decode(this).asImageBitmap()
+/** 离线兜底：解码内置 display.bin 并旋转 90°（Spectra6 全彩调色板）。 */
+private fun ByteArray.decodeRotatedSafely(): ImageBitmap? = try {
+    EInkDecoder.decodeRotated90(this, EInkDecoder.SPECTRA6).asImageBitmap()
 } catch (_: Throwable) {
     null
 }
