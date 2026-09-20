@@ -10,11 +10,19 @@ android {
         applicationId = "com.coomi.relive"
         minSdk = 26
         targetSdk = 34
-        // 版本号可由 CI 传入（-PversionCode / -PversionName），默认从 git 时间戳派生，保证每次构建唯一递增
-        versionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull()
-            ?: (System.currentTimeMillis() / 1000L).toInt()
-        versionName = (project.findProperty("versionName") as String?)
-            ?: "1.0-${Runtime.getRuntime().availableProcessors()}"
+        // 版本号从 git 自动派生，保证每次提交/构建版本号唯一递增，便于识别新旧
+        // versionCode = git 提交数；versionName = 1.0-日期-短commit
+        val gitCommitCount = try {
+            ProcessBuilder("git", "rev-list", "--count", "HEAD")
+                .redirectErrorStream(true).start().inputStream.bufferedReader().readText().trim().toInt()
+        } catch (_: Throwable) { 1 }
+        val gitShort = try {
+            ProcessBuilder("git", "rev-parse", "--short", "HEAD")
+                .redirectErrorStream(true).start().inputStream.bufferedReader().readText().trim()
+        } catch (_: Throwable) { "dev" }
+        versionCode = project.findProperty("versionCode")?.toString()?.toIntOrNull() ?: gitCommitCount
+        versionName = project.findProperty("versionName")?.toString()
+            ?: "1.0-${java.text.SimpleDateFormat("yyMMddHHmm").format(java.util.Date())}-$gitShort"
     }
     buildFeatures { compose = true }
     composeOptions { kotlinCompilerExtensionVersion = "1.5.10" }
