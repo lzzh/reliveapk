@@ -10,8 +10,11 @@ android {
         applicationId = "com.coomi.relive"
         minSdk = 26
         targetSdk = 34
-        // 版本号从 git 自动派生，保证每次提交/构建版本号唯一递增，便于识别新旧
-        // versionCode = git 提交数；versionName = 1.0-日期-短commit
+        // 版本号从 git 自动派生，保证每次提交都有唯一版本，便于识别新旧。
+        // 注意：Gradle Kotlin DSL 里 `java` 会被解析成 JavaPluginExtension 扩展，
+        // 所以这里不能写 java.text.* / java.util.*（会 Unresolved reference），
+        // 只用 java.lang 的 ProcessBuilder 与系统时间戳。
+        // versionCode = git 提交数；versionName = 1.0-<提交数>-<短commit>[-<构建时间>]
         val gitCommitCount = try {
             ProcessBuilder("git", "rev-list", "--count", "HEAD")
                 .redirectErrorStream(true).start().inputStream.bufferedReader().readText().trim().toInt()
@@ -20,9 +23,10 @@ android {
             ProcessBuilder("git", "rev-parse", "--short", "HEAD")
                 .redirectErrorStream(true).start().inputStream.bufferedReader().readText().trim()
         } catch (_: Throwable) { "dev" }
+        val buildStamp = (System.currentTimeMillis() / 60000L) % 1000000L  // 分钟级，够区分构建
         versionCode = project.findProperty("versionCode")?.toString()?.toIntOrNull() ?: gitCommitCount
         versionName = project.findProperty("versionName")?.toString()
-            ?: "1.0-${java.text.SimpleDateFormat("yyMMddHHmm").format(java.util.Date())}-$gitShort"
+            ?: "1.0-$gitCommitCount-$gitShort-$buildStamp"
     }
     buildFeatures { compose = true }
     composeOptions { kotlinCompilerExtensionVersion = "1.5.10" }
