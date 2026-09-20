@@ -20,37 +20,42 @@ import androidx.compose.ui.graphics.asImageBitmap
  */
 object PageComposer {
 
-    /** 底部文字条占画面高度的比例。 */
-    private const val BAND_HEIGHT_RATIO = 0.10f
-
-    /** 文字条四周留白比例。 */
-    private const val BAND_PADDING_RATIO = 0.08f
+    /** 白条左右边距比例（相对屏幕宽度），让文字条不顶到屏幕边缘。 */
+    private const val BAND_PAD_X_RATIO = 0.02f
 
     private const val MARGIN_COLOR = Color.WHITE
 
+    /**
+     * @param bandHeightRatio 底部白条占画面高度的比例（如 0.12 = 12%），由设置自定义传入。
+     */
     fun composeFull(
         photo: ImageBitmap,
         band: ImageBitmap?,
         screenW: Int,
-        screenH: Int
+        screenH: Int,
+        bandHeightRatio: Float = 0.12f
     ): ImageBitmap {
         val outW = screenW.coerceAtLeast(1)
         val outH = screenH.coerceAtLeast(1)
+        val ratio = bandHeightRatio.coerceIn(0.05f, 0.35f)
 
-        // 底部文字条高度（统一短边窄条）
-        val bandH = (outH * BAND_HEIGHT_RATIO).toInt().coerceAtLeast(1)
         val photoW = outW
-        val photoH = (outH - bandH).coerceAtLeast(1)
 
         val out = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(out)
         canvas.drawColor(MARGIN_COLOR)
+
         val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
 
-        // 1) 照片：居中裁切填满上方（不旋转，原方向）
+        // 1) 底部白条高度：按传入比例（默认 12%），由设置自定义。
+        //    文字条在其内等比缩放居中（见 drawFitted），白条窄而文字清晰。
+        val bandH = (outH * ratio).toInt().coerceAtLeast(1)
+        val photoH = (outH - bandH).coerceAtLeast(1)
+
+        // 2) 照片：居中裁切填满上方（不旋转，原方向）
         drawCenterCrop(canvas, photo, Rect(0, 0, photoW, photoH), paint)
 
-        // 2) 文字条：横向，等比缩放居中放进底部窄条
+        // 3) 文字条：等比缩放，居中放进底部窄条
         band?.let {
             drawFitted(canvas, it.asAndroidBitmap(), bandRect(0, photoH, outW, bandH), paint)
         }
@@ -59,9 +64,8 @@ object PageComposer {
     }
 
     private fun bandRect(left: Int, top: Int, w: Int, h: Int): Rect {
-        val padX = (w * BAND_PADDING_RATIO).toInt()
-        val padY = (h * BAND_PADDING_RATIO).toInt()
-        return Rect(left + padX, top + padY, left + w - padX, top + h - padY)
+        val padX = (w * BAND_PAD_X_RATIO).toInt()
+        return Rect(left + padX, top, left + w - padX, top + h)
     }
 
     private fun drawCenterCrop(canvas: Canvas, src: ImageBitmap, dst: Rect, paint: Paint) {

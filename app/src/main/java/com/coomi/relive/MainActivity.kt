@@ -49,6 +49,8 @@ import java.util.*
 private const val PREFS = "relive_prefs"
 private const val KEY_BASE = "server_base"
 private const val KEY_API = "api_key"
+private const val KEY_RATIO = "band_ratio"
+private const val DEFAULT_RATIO = 0.12f
 
 /** 规范化服务器地址：去空格、补协议、去尾部斜杠。 */
 fun normalizeBase(raw: String): String {
@@ -74,6 +76,7 @@ class MainActivity : ComponentActivity() {
         val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val savedBase = prefs.getString(KEY_BASE, "") ?: ""
         val savedKey = prefs.getString(KEY_API, "") ?: ""
+        val savedRatio = prefs.getFloat(KEY_RATIO, DEFAULT_RATIO)
 
         val client = ReliveClient(baseUrl = savedBase, apiKey = savedKey)
         val vm = ReliveViewModel(client)
@@ -84,6 +87,7 @@ class MainActivity : ComponentActivity() {
                     vm = vm,
                     initialBase = savedBase,
                     initialKey = savedKey,
+                    initialRatio = savedRatio,
                     firstRun = savedBase.isBlank() || savedKey.isBlank(),
                     onSaveConfig = { base, key ->
                         prefs.edit()
@@ -91,6 +95,9 @@ class MainActivity : ComponentActivity() {
                             .putString(KEY_API, key)
                             .apply()
                         vm.applyConfig(base, key)
+                    },
+                    onSaveRatio = { ratio ->
+                        prefs.edit().putFloat(KEY_RATIO, ratio).apply()
                     }
                 )
             }
@@ -103,8 +110,10 @@ fun ReliveScreen(
     vm: ReliveViewModel,
     initialBase: String,
     initialKey: String,
+    initialRatio: Float,
     firstRun: Boolean,
-    onSaveConfig: (String, String) -> Unit
+    onSaveConfig: (String, String) -> Unit,
+    onSaveRatio: (Float) -> Unit
 ) {
     val context = LocalContext.current
 
@@ -119,6 +128,8 @@ fun ReliveScreen(
     var controlsVisible by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(firstRun) }
     var pageBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+    // 底部文字白条占屏比例（可在设置里自定义）
+    var bandRatio by remember { mutableStateOf(initialRatio) }
 
     Box(
         modifier = Modifier
@@ -134,10 +145,10 @@ fun ReliveScreen(
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 val wPx = constraints.maxWidth
                 val hPx = constraints.maxHeight
-                LaunchedEffect(photo, band, wPx, hPx) {
+                LaunchedEffect(photo, band, wPx, hPx, bandRatio) {
                     val p = photo ?: return@LaunchedEffect
                     pageBitmap = withContext(Dispatchers.Default) {
-                        PageComposer.composeFull(p, band, wPx, hPx)
+                        PageComposer.composeFull(p, band, wPx, hPx, bandRatio)
                     }
                 }
                 val pb = pageBitmap
@@ -256,8 +267,13 @@ fun ReliveScreen(
         SettingsDialog(
             currentBase = initialBase,
             currentKey = initialKey,
+            currentRatio = bandRatio,
             conn = conn,
             onTest = { base, key -> vm.testConfig(base, key) },
+            onRatioChange = { r ->
+                bandRatio = r
+                onSaveRatio(r)
+            },
             onSave = { base, key ->
                 onSaveConfig(base, key)
                 showSettings = false
@@ -272,13 +288,16 @@ fun ReliveScreen(
 private fun SettingsDialog(
     currentBase: String,
     currentKey: String,
+    currentRatio: Float,
     conn: ConnTest,
     onTest: (String, String) -> Unit,
+    onRatioChange: (Float) -> Unit,
     onSave: (String, String) -> Unit,
     onDismiss: () -> Unit
 ) {
     var base by remember { mutableStateOf(currentBase) }
     var key by remember { mutableStateOf(currentKey) }
+    var ratio by remember { mutableStateOf(currentRatio) }
 
     val fieldColors = TextFieldDefaults.outlinedTextFieldColors(
         textColor = Color.White,
@@ -346,6 +365,35 @@ private fun SettingsDialog(
                 Spacer(Modifier.height(8.dp))
                 Text(
                     text = "在 Relive 后台「设备管理」创建 embedded 设备可获得 API Key",
+                    color = Color(0xFF9E9E9E),
+                    fontSize = 11.sp
+                )
+                Spacer(Modifier.height(16.dp))
+
+                // 底部文字白条高度（可自定义）
+                Text(
+                    text = "文字条高度：${(ratio * 100).toInt()}%",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Slider(
+                    value = ratio,
+                    onValueChange = {
+                        ratio = it
+                        onRatioChange(it)   // 实时保存并即时预览
+                    },
+                    valueRange = 0.06f..0.30f,
+                    steps = 23,
+                    colors = SliderDefaults.colors(
+                        thumbColor = Color(0xFF40C4FF),
+                        activeTrackColor = Color(0xFF40C4FF),
+                        inactiveTrackColor = Color(0xFF505050)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    text = "越小文字条越窄（6%~30%，默认 12%）",
                     color = Color(0xFF9E9E9E),
                     fontSize = 11.sp
                 )
