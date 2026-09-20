@@ -3,7 +3,6 @@ package com.coomi.relive
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Rect
 import androidx.compose.ui.graphics.ImageBitmap
@@ -13,17 +12,20 @@ import androidx.compose.ui.graphics.asImageBitmap
 /**
  * 把「高清原照片 + 服务端文字条」合成一张适配屏幕的画页。
  *
- * 白边位置由**照片自身横竖**决定（不是屏幕方向）：
- *  - 横构图照片（宽 > 高）→ 白边在 **右侧**，文字条旋转 90° 竖排
- *  - 竖构图照片（高 ≥ 宽）→ 白边在 **下方**，文字条横排
+ * **文字条统一贴在底部短边**（无论照片横竖）：
+ *  - 都是底部一条窄横条，占面积小、显示统一
+ *  - 照片居中裁切填满上方区域
  *
- * 照片在其区域内居中裁切（CENTER_CROP）填满；留白区纯白底，文字条等比缩放居中。
+ * 文字条（服务端渲染好的 480×160）本来就是横向排版，放底部横条最自然，无需旋转。
  */
 object PageComposer {
 
-    private const val LANDSCAPE_BAND_RATIO = 0.26f   // 横图：右侧白边占宽度
-    private const val PORTRAIT_BAND_RATIO = 0.22f    // 竖图：底部白边占高度
-    private const val BAND_PADDING_RATIO = 0.10f
+    /** 底部文字条占画面高度的比例。 */
+    private const val BAND_HEIGHT_RATIO = 0.20f
+
+    /** 文字条四周留白比例。 */
+    private const val BAND_PADDING_RATIO = 0.08f
+
     private const val MARGIN_COLOR = Color.WHITE
 
     fun composeFull(
@@ -34,38 +36,23 @@ object PageComposer {
     ): ImageBitmap {
         val outW = screenW.coerceAtLeast(1)
         val outH = screenH.coerceAtLeast(1)
-        val photoIsLandscape = photo.width >= photo.height
+
+        // 底部文字条高度（统一短边窄条）
+        val bandH = (outH * BAND_HEIGHT_RATIO).toInt().coerceAtLeast(1)
+        val photoW = outW
+        val photoH = (outH - bandH).coerceAtLeast(1)
 
         val out = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(out)
         canvas.drawColor(MARGIN_COLOR)
         val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
 
-        if (photoIsLandscape) {
-            val bandW = (outW * LANDSCAPE_BAND_RATIO).toInt().coerceAtLeast(1)
-            val photoW = (outW - bandW).coerceAtLeast(1)
-            val photoH = outH
+        // 1) 照片：居中裁切填满上方（不旋转，原方向）
+        drawCenterCrop(canvas, photo, Rect(0, 0, photoW, photoH), paint)
 
-            drawCenterCrop(canvas, photo, Rect(0, 0, photoW, photoH), paint)
-
-            band?.let {
-                val rotated = Bitmap.createBitmap(
-                    it.asAndroidBitmap(), 0, 0, it.width, it.height,
-                    Matrix().apply { postRotate(90f) }, true
-                )
-                drawFitted(canvas, rotated, bandRect(photoW, 0, bandW, outH), paint)
-                rotated.recycle()
-            }
-        } else {
-            val bandH = (outH * PORTRAIT_BAND_RATIO).toInt().coerceAtLeast(1)
-            val photoW = outW
-            val photoH = (outH - bandH).coerceAtLeast(1)
-
-            drawCenterCrop(canvas, photo, Rect(0, 0, photoW, photoH), paint)
-
-            band?.let {
-                drawFitted(canvas, it.asAndroidBitmap(), bandRect(0, photoH, outW, bandH), paint)
-            }
+        // 2) 文字条：横向，等比缩放居中放进底部窄条
+        band?.let {
+            drawFitted(canvas, it.asAndroidBitmap(), bandRect(0, photoH, outW, bandH), paint)
         }
 
         return out.asImageBitmap()
@@ -90,6 +77,7 @@ object PageComposer {
         val dw = dst.width().toFloat()
         val dh = dst.height().toFloat()
         if (dw <= 0 || dh <= 0) return
+        // 等比缩放，铺满底部条宽度
         val scale = minOf(dw / sw, dh / sh)
         val w = (sw * scale).toInt().coerceAtLeast(1)
         val h = (sh * scale).toInt().coerceAtLeast(1)
