@@ -1,7 +1,12 @@
-# Relive 照片 App（Android）
+# Relive智能照片记忆相框 配套App（Android）
 
 连接你自部署的 [Relive](https://github.com/davidhoo/relive) 服务器，
 把「往年今日」照片以**全屏沉浸式**方式展示在 Android 设备上。
+服务器的部署请移步 [Relive](https://github.com/davidhoo/relive)查看
+
+## 特别说明
+我是什么也不懂的小白，全程使用Deepseek完成代码。用claude对代码进行了验证。
+如果有错误，请自己修正，我无能为力。
 
 ## 功能
 
