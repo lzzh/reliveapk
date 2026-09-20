@@ -45,8 +45,26 @@ class ReliveClient(
         .build()
 
     private fun buildUrl(): String {
-        val base = baseUrl.trim().trimEnd('/')
+        val base = normalizeBase(baseUrl.ifBlank { DEFAULT_BASE })
         return "$base$DISPLAY_BIN?_t=${System.currentTimeMillis()}"
+    }
+
+    /** 把底层网络异常转成中文可读提示。 */
+    private fun humanError(t: Throwable): String {
+        val m = (t.localizedMessage ?: t.message ?: "").lowercase()
+        return when {
+            m.contains("unable to resolve host") || m.contains("no address associated") ->
+                "无法解析域名，请检查服务器地址是否正确"
+            m.contains("failed to connect") || m.contains("connection refused") ->
+                "无法连接服务器，请检查地址与网络"
+            m.contains("timeout") || m.contains("timed out") ->
+                "连接超时，请检查网络"
+            m.contains("ssl") || m.contains("certificate") ->
+                "HTTPS 证书错误（可尝试 http://）"
+            m.contains("cleartext") ->
+                "明文 HTTP 被系统拦截"
+            else -> t.localizedMessage ?: t.message ?: "未知错误"
+        }
     }
 
     /**
@@ -54,12 +72,10 @@ class ReliveClient(
      * 用带 cache-buster 的 GET，确保服务端真正校验 Key 并返回设备位图。
      */
     fun testConnection(): TestResult {
-        val base = baseUrl.trim().trimEnd('/')
-        if (base.isEmpty()) return TestResult(false, "失败：服务器地址为空")
-        if (!base.startsWith("http://") && !base.startsWith("https://")) {
-            return TestResult(false, "失败：地址需以 http:// 或 https:// 开头")
-        }
-        if (apiKey.trim().isEmpty()) return TestResult(false, "失败：API Key 为空")
+        val base = normalizeBase(baseUrl)
+        if (base.isEmpty()) return TestResult(false, "服务器地址为空")
+        if (base == "https://" || base == "http://") return TestResult(false, "服务器地址不完整")
+        if (apiKey.trim().isEmpty()) return TestResult(false, "API Key 为空")
 
         return try {
             val req = Request.Builder()
@@ -71,30 +87,30 @@ class ReliveClient(
             http.newCall(req).execute().use { resp ->
                 when {
                     resp.code == 401 || resp.code == 403 ->
-                        TestResult(false, "失败：API Key 无效（HTTP ${resp.code}）")
+                        TestResult(false, "API Key 无效（HTTP ${resp.code}）")
                     resp.code == 404 ->
-                        TestResult(false, "失败：接口不存在（HTTP 404），请检查服务器地址")
+                        TestResult(false, "接口不存在（HTTP 404），请检查服务器地址")
                     !resp.isSuccessful ->
-                        TestResult(false, "失败：HTTP ${resp.code} ${resp.message}")
+                        TestResult(false, "HTTP ${resp.code} ${resp.message}")
                     else -> {
                         val profile = resp.header("X-Render-Profile")
                         val assetId = resp.header("X-Asset-ID")
                         val len = resp.body?.contentLength() ?: -1L
                         if (profile.isNullOrEmpty()) {
-                            TestResult(false, "失败：返回内容不是设备位图（请检查地址）")
+                            TestResult(false, "返回的不是设备位图，请检查地址")
                         } else if (len in 0 until EInkDecoder.FRAME_BYTES.toLong()) {
-                            TestResult(false, "失败：数据长度异常（$len 字节）")
+                            TestResult(false, "数据长度异常（$len 字节）")
                         } else {
                             TestResult(
                                 true,
-                                "连接成功 · 规格 $profile · asset ${assetId ?: "-"} · ${EInkDecoder.FRAME_BYTES} 字节"
+                                "连接成功 · 规格 $profile · asset ${assetId ?: "-"}"
                             )
                         }
                     }
                 }
             }
         } catch (t: Throwable) {
-            TestResult(false, "失败：${t.localizedMessage ?: t.message ?: "未知错误"}")
+            TestResult(false, humanError(t))
         }
     }
 

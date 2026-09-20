@@ -15,6 +15,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
@@ -30,8 +34,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -44,23 +50,29 @@ private const val KEY_BASE = "server_base"
 private const val KEY_API = "api_key"
 private const val KEY_SCREEN_COLORS = "screen_colors"
 
+/** 规范化服务器地址：去空格、补协议、去尾部斜杠。 */
+fun normalizeBase(raw: String): String {
+    var b = raw.trim()
+    if (b.isEmpty()) return b
+    if (!b.startsWith("http://") && !b.startsWith("https://")) b = "https://$b"
+    while (b.endsWith("/")) b = b.dropLast(1)
+    return b
+}
+
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 全屏沉浸
         WindowCompat.setDecorFitsSystemWindows(window, false)
         val controller = WindowInsetsControllerCompat(window, window.decorView)
         controller.hide(WindowInsetsCompat.Type.systemBars())
         controller.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        // 相框场景：屏幕常亮
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val savedBase = prefs.getString(KEY_BASE, ReliveClient.DEFAULT_BASE) ?: ReliveClient.DEFAULT_BASE
-        // 不再硬编码任何 API Key：首次启动为空，强制用户在设置页填写
         val savedKey = prefs.getString(KEY_API, "") ?: ""
         val savedScreenColors = prefs.getBoolean(KEY_SCREEN_COLORS, false)
 
@@ -118,14 +130,11 @@ fun ReliveScreen(
     val screenColors by vm.screenColors.collectAsStateWithLifecycle()
 
     var controlsVisible by remember { mutableStateOf(false) }
-    // 首次启动（无 Key）自动弹出设置
     var showSettings by remember { mutableStateOf(firstRun) }
 
-    // 设备方向：跟随物理方向（Manifest 未锁定）
     val configuration = LocalConfiguration.current
     val deviceLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-    // 方向不一致则旋转 90°，让图片跟随屏幕方向铺满
     val oriented: ImageBitmap? = remember(display, deviceLandscape) {
         val d = display ?: return@remember null
         val imageLandscape = d.width > d.height
@@ -146,14 +155,13 @@ fun ReliveScreen(
                 bitmap = oriented!!,
                 contentDescription = "往年今日照片",
                 contentScale = ContentScale.Crop,
-                // 最近邻缩放：保持墨水屏抖动点锐利，不糊
                 filterQuality = FilterQuality.None,
                 modifier = Modifier.fillMaxSize()
             )
         } else {
             Text(
                 text = "无数据\n点屏幕 → ⚙ 设置 API Key",
-                color = Color.Gray,
+                color = Color.White,
                 fontSize = 14.sp,
                 modifier = Modifier.align(Alignment.Center)
             )
@@ -223,7 +231,7 @@ fun ReliveScreen(
                 } else {
                     Text(
                         text = "asset $assetId · ${if (deviceLandscape) "横屏" else "竖屏"} · 刷新 ${formatTime(lastRefreshMs)}",
-                        color = Color.Gray,
+                        color = Color(0xFFB0B0B0),
                         fontSize = 12.sp
                     )
                 }
@@ -265,6 +273,10 @@ fun ReliveScreen(
     }
 }
 
+/**
+ * 自定义设置对话框（不用 AlertDialog，避免深色主题下文字不可见）。
+ * 所有文字显式指定颜色，保证在深色背景上清晰可读。
+ */
 @Composable
 private fun SettingsDialog(
     currentBase: String,
@@ -279,74 +291,136 @@ private fun SettingsDialog(
     var key by remember { mutableStateOf(currentKey) }
     var screenColors by remember { mutableStateOf(currentScreenColors) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("设置") },
-        text = {
-            Column {
-                Text("服务器地址", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(4.dp))
+    val fieldColors = TextFieldDefaults.outlinedTextFieldColors(
+        textColor = Color.White,
+        cursorColor = Color(0xFF40C4FF),
+        focusedBorderColor = Color(0xFF40C4FF),
+        unfocusedBorderColor = Color(0xFF808080),
+        placeholderColor = Color(0xFF808080),
+        focusedLabelColor = Color(0xFF40C4FF),
+        unfocusedLabelColor = Color(0xFFB0B0B0)
+    )
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            color = Color(0xFF1E1E22),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier
+                .widthIn(max = 560.dp)
+                .fillMaxWidth(0.94f)
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(20.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    "设置",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(Modifier.height(16.dp))
+
+                Text("服务器地址", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(6.dp))
                 OutlinedTextField(
                     value = base,
                     onValueChange = { base = it },
                     singleLine = true,
-                    placeholder = { Text("https://relive.example.com") },
+                    placeholder = { Text("relive.example.com", color = Color(0xFF808080)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    colors = fieldColors,
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(16.dp))
 
-                Text("API Key", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(4.dp))
+                Text("API Key", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(6.dp))
                 OutlinedTextField(
                     value = key,
                     onValueChange = { key = it },
                     singleLine = true,
-                    placeholder = { Text("sk-relive-xxxxxxxx") },
+                    placeholder = { Text("sk-relive-xxxxxxxx", color = Color(0xFF808080)) },
+                    colors = fieldColors,
                     modifier = Modifier.fillMaxWidth()
                 )
 
                 Spacer(Modifier.height(12.dp))
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = screenColors, onCheckedChange = { screenColors = it })
-                    Spacer(Modifier.width(4.dp))
-                    Text("屏幕鲜艳配色（LCD/OLED 更亮）", fontSize = 13.sp)
+                    Checkbox(
+                        checked = screenColors,
+                        onCheckedChange = { screenColors = it },
+                        colors = CheckboxDefaults.colors(
+                            checkedColor = Color(0xFF40C4FF),
+                            uncheckedColor = Color(0xFF9E9E9E),
+                            checkmarkColor = Color(0xFF003345)
+                        )
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text("屏幕鲜艳配色（LCD/OLED 更亮）", color = Color.White, fontSize = 13.sp)
                 }
 
                 Spacer(Modifier.height(8.dp))
 
+                // 预览即将使用的地址，便于核对
+                Text(
+                    text = "将使用：${normalizeBase(base).ifEmpty { "(未填写)" }}",
+                    color = Color(0xFF9E9E9E),
+                    fontSize = 11.sp
+                )
+
+                Spacer(Modifier.height(10.dp))
+
                 when {
                     conn.testing -> Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = Color(0xFF40C4FF)
+                        )
                         Spacer(Modifier.width(8.dp))
-                        Text("测试中…", fontSize = 13.sp)
+                        Text("测试中…", color = Color.White, fontSize = 13.sp)
                     }
                     conn.message != null -> Text(
                         text = (if (conn.ok == true) "✓ " else "✗ ") + conn.message,
-                        color = if (conn.ok == true) Color(0xFF2E7D32) else Color(0xFFC62828),
+                        color = if (conn.ok == true) Color(0xFF4CAF50) else Color(0xFFFF5252),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = !conn.testing,
-                onClick = { onTest(base.trim(), key.trim()) }
-            ) { Text("测试连接") }
-        },
-        dismissButton = {
-            Row {
-                TextButton(onClick = onDismiss) { Text("取消") }
-                TextButton(
-                    enabled = !conn.testing,
-                    onClick = { onSave(base.trim(), key.trim(), screenColors) }
-                ) { Text("保存") }
+
+                Spacer(Modifier.height(14.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("取消", color = Color(0xFFB0B0B0))
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    TextButton(
+                        enabled = !conn.testing,
+                        onClick = { onSave(normalizeBase(base), key.trim(), screenColors) }
+                    ) {
+                        Text("保存", color = Color(0xFF40C4FF), fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    TextButton(
+                        enabled = !conn.testing,
+                        onClick = { onTest(normalizeBase(base), key.trim()) }
+                    ) {
+                        Text("测试连接", color = Color(0xFF40C4FF))
+                    }
+                }
             }
         }
-    )
+    }
 }
 
 private fun formatTime(ms: Long): String =
@@ -356,6 +430,9 @@ private fun darkColors(): Colors = lightColors().copy(
     primary = Color(0xFF40C4FF),
     onPrimary = Color(0xFF003345),
     background = Color(0xFF000000),
-    surface = Color(0xFF000000),
-    onSurface = Color.White
+    surface = Color(0xFF1E1E22),
+    onSurface = Color.White,
+    onBackground = Color.White,
+    onSecondary = Color.White,
+    onError = Color.White
 )
