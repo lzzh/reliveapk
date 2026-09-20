@@ -88,7 +88,6 @@ class MainActivity : ComponentActivity() {
                     initialBase = savedBase,
                     initialKey = savedKey,
                     initialRatio = savedRatio,
-                    firstRun = savedBase.isBlank() || savedKey.isBlank(),
                     onSaveConfig = { base, key ->
                         prefs.edit()
                             .putString(KEY_BASE, base)
@@ -111,7 +110,6 @@ fun ReliveScreen(
     initialBase: String,
     initialKey: String,
     initialRatio: Float,
-    firstRun: Boolean,
     onSaveConfig: (String, String) -> Unit,
     onSaveRatio: (Float) -> Unit
 ) {
@@ -119,14 +117,20 @@ fun ReliveScreen(
 
     val photo by vm.photo.collectAsStateWithLifecycle()
     val band by vm.band.collectAsStateWithLifecycle()
+    val display by vm.display.collectAsStateWithLifecycle()
     val caption by vm.caption.collectAsStateWithLifecycle()
     val isRefreshing by vm.isRefreshing.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
     val lastRefreshMs by vm.lastRefreshMs.collectAsStateWithLifecycle()
     val conn by vm.conn.collectAsStateWithLifecycle()
 
+    // 当前生效的配置（保存后立刻更新，避免再次打开设置时看到启动时的旧值）
+    var curBase by remember { mutableStateOf(initialBase) }
+    var curKey by remember { mutableStateOf(initialKey) }
+    val configured = curBase.isNotBlank() && curKey.isNotBlank()
+
     var controlsVisible by remember { mutableStateOf(false) }
-    var showSettings by remember { mutableStateOf(firstRun) }
+    var showSettings by remember { mutableStateOf(!configured) }
     var pageBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
     // 底部文字白条占屏比例（可在设置里自定义）
     var bandRatio by remember { mutableStateOf(initialRatio) }
@@ -141,7 +145,7 @@ fun ReliveScreen(
             ) { controlsVisible = !controlsVisible }
     ) {
         if (photo != null) {
-            // 原图 + 自动排版：横图右白边、竖图下白边
+            // 主路径：原图铺满上方 + 底部窄文字条（白条高度可在设置里调）
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 val wPx = constraints.maxWidth
                 val hPx = constraints.maxHeight
@@ -167,9 +171,19 @@ fun ReliveScreen(
                     )
                 }
             }
+        } else if (display != null) {
+            // 回退路径：服务端渲染好的 480×800 相框位图（已含照片+文字，方向由服务端校正）
+            // 竖版位图在横屏设备上按 Fit 居中显示，文字仍保持正向可读（不旋转）。
+            Image(
+                bitmap = display!!,
+                contentDescription = "回退相框位图",
+                contentScale = ContentScale.Fit,
+                filterQuality = FilterQuality.Medium,
+                modifier = Modifier.fillMaxSize()
+            )
         } else {
             Text(
-                text = if (firstRun) "尚未配置\n点屏幕 → ⚙ 填写服务器地址与 API Key"
+                text = if (!configured) "尚未配置\n点屏幕 → ⚙ 填写服务器地址与 API Key"
                        else "加载中…",
                 color = Color.White,
                 fontSize = 14.sp,
@@ -265,8 +279,8 @@ fun ReliveScreen(
 
     if (showSettings) {
         SettingsDialog(
-            currentBase = initialBase,
-            currentKey = initialKey,
+            currentBase = curBase,
+            currentKey = curKey,
             currentRatio = bandRatio,
             conn = conn,
             onTest = { base, key -> vm.testConfig(base, key) },
@@ -275,6 +289,8 @@ fun ReliveScreen(
                 onSaveRatio(r)
             },
             onSave = { base, key ->
+                curBase = base
+                curKey = key
                 onSaveConfig(base, key)
                 showSettings = false
                 Toast.makeText(context, "已保存并刷新", Toast.LENGTH_SHORT).show()

@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,13 +25,11 @@ data class ConnTest(
 /**
  * 状态中枢。取图策略（自动）：
  *  1. `/device/display` 拿推荐照片的 photo_id + asset_id
- *  2. `/photos/{photo_id}/image` 拿**原图**（高清、不裁切、不降色）
- *  3. 同时取 `/display/assets/{asset_id}/bin` 的底部文字条 → 解析出标题 + 日期/地点
- *  4. 由 [PageComposer] 按**照片自身横竖**排版（横图右白边、竖图下白边）
+ *  2. `/photos/{photo_id}/image` 拿**原图**（高清、不裁切、不降色，按 EXIF 转正）
+ *  3. 同时取 `/display/assets/{asset_id}/bin` 的底部文字条 → 复用服务端排版好的文案/日期
+ *  4. 由 [PageComposer] 合成：照片铺满上方 + 底部窄文字条（高度可在设置里调）
  *
- * 解析文字：从文字条 Bitmap 中提取纯文本（OCR 太贵，改为从 JSON 里没有，
- * 故直接读取文字条并作为位图贴进留白区——保留服务端排版）。
- * 任一步失败 → 回退到服务端 480×800 相框位图。
+ * 任一步失败 → 回退到服务端 480×800 相框位图（按设备规格选调色板）。
  */
 class ReliveViewModel(
     private val client: ReliveClient
@@ -69,6 +68,12 @@ class ReliveViewModel(
     init {
         refresh()
         startAutoRefresh()
+    }
+
+    /** ViewModel 释放时停掉自动刷新协程，避免作用域泄漏。 */
+    override fun onCleared() {
+        super.onCleared()
+        scope.cancel()
     }
 
     private fun startAutoRefresh() {
@@ -114,6 +119,7 @@ class ReliveViewModel(
                     _error.value = "离线：${t2.message}"
                     _photo.value = null
                     _band.value = null
+                    _display.value = null
                 }
                 _lastRefreshMs.value = System.currentTimeMillis()
             } finally {
@@ -122,7 +128,7 @@ class ReliveViewModel(
         }
     }
 
-    /** 原图 + 文字条（高清，自动排版）。 */
+    /** 原图 + 文字条（高清、自动排版）。 */
     private suspend fun refreshComposed() {
         val info = withContext(Dispatchers.IO) { client.fetchDeviceDisplayInfo() }
         if (info.photoId <= 0) throw RuntimeException("未取到推荐照片")
@@ -134,7 +140,9 @@ class ReliveViewModel(
         val band = try {
             val frameBytes = withContext(Dispatchers.IO) { client.fetchAssetBin(info.assetId) }
             withContext(Dispatchers.IO) {
-                EInkDecoder.decodeInfoBand(frameBytes).asImageBitmap()
+                // 文字条是纯黑白区域，调色板用哪种都不影响；仍按规格选，保持一致。
+                val palette = EInkDecoder.paletteFor(info.renderProfile)
+                EInkDecoder.decodeInfoBand(frameBytes, palette).asImageBitmap()
             }
         } catch (_: Throwable) {
             null
@@ -147,24 +155,30 @@ class ReliveViewModel(
             info.batchDate.takeIf { it.isNotBlank() }?.let { append(" · $it") }
         }
         _display.value = null
+        _error.value = null
         _lastRefreshMs.value = System.currentTimeMillis()
     }
 
-    /** 相框回退（480×800 位图）。 */
+    /**
+     * 相框回退（服务端渲染好的 480×800 位图，含照片 + 文字，方向已由服务端校正）。
+     * 回退**成功**不算错误：只在底部信息条显示提示，不点亮"离线"红色告警。
+     */
     private suspend fun refreshFramed(trigger: Throwable) {
         val r = withContext(Dispatchers.IO) { client.fetchDisplayBlocking() }
-        val bmp = withContext(Dispatchers.IO) { r.bytes.decodeFrameSafely() }
+        val palette = EInkDecoder.paletteFor(r.renderProfile)
+        val bmp = withContext(Dispatchers.IO) { r.bytes.decodeFrameSafely(palette) }
+            ?: throw RuntimeException("相框位图解码失败")
         _display.value = bmp
         _photo.value = null
         _band.value = null
-        _caption.value = "回退相框（${r.renderProfile}）"
-        _error.value = "原图不可用，已回退：${trigger.message}"
+        _caption.value = "回退相框（${r.renderProfile}）· 原图不可用：${trigger.message}"
+        _error.value = null
     }
 }
 
-/** 解码 480×800 相框位图（Spectra6 全彩）。 */
-private fun ByteArray.decodeFrameSafely(): ImageBitmap? = try {
-    EInkDecoder.decode(this, EInkDecoder.SPECTRA6_EINK).asImageBitmap()
+/** 解码 480×800 相框位图（调色板按设备渲染规格选择）。 */
+private fun ByteArray.decodeFrameSafely(palette: IntArray): ImageBitmap? = try {
+    EInkDecoder.decode(this, palette).asImageBitmap()
 } catch (_: Throwable) {
     null
 }

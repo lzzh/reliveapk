@@ -51,6 +51,16 @@ object EInkDecoder {
         if (index in palette.indices) palette[index] else 0xFF000000.toInt()
 
     /**
+     * 按设备渲染规格名选调色板。
+     *
+     * 服务端 `BuiltinRenderProfiles()` 里默认设备（`DefaultForDevice`）用的是
+     * `gdem075f52_480x800_4color`（四色 bwry4），只有显式选了 Spectra 6 才是六色。
+     * 用错调色板会让黄/红明显偏色（164,154,49 vs 233,188,41）。
+     */
+    fun paletteFor(renderProfile: String): IntArray =
+        if (renderProfile.contains("spectra6", ignoreCase = true)) SPECTRA6_EINK else GDEM4_EINK
+
+    /**
      * 只解码相框**底部信息区**（文字条）：480×[INFO_BAND_HEIGHT]，纯白底黑字。
      * 服务端把文案 + 日期渲染在这条里，App 复用它做留白区文字。
      */
