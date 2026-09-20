@@ -340,12 +340,15 @@ private fun SettingsDialog(
             ) {
                 Text("设置", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 // 显示当前 App 版本号，方便确认是否为最新构建
-                val appVersion = remember {
+                // 注意：LocalContext.current 是 composable 调用，必须先取出再进 remember 的 lambda
+                val ctx = LocalContext.current
+                val appVersion = remember(ctx) {
                     try {
-                        val ctx = LocalContext.current
                         val pkg = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
                         "v${pkg.versionName} (code ${pkg.versionCode})"
-                    } catch (_: Throwable) { "unknown" }
+                    } catch (_: Throwable) {
+                        "unknown"
+                    }
                 }
                 Text(
                     text = "版本 $appVersion",
