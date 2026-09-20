@@ -21,7 +21,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 object PageComposer {
 
     /** 底部文字条占画面高度的比例。 */
-    private const val BAND_HEIGHT_RATIO = 0.20f
+    private const val BAND_HEIGHT_RATIO = 0.10f
 
     /** 文字条四周留白比例。 */
     private const val BAND_PADDING_RATIO = 0.08f
