@@ -8,8 +8,9 @@ import java.util.concurrent.TimeUnit
  * Relive 设备端客户端。
  *
  *  - 拉取：GET {baseUrl}/api/v1/device/display.bin，Header `X-API-Key`
- *  - [baseUrl] / [apiKey] 均可在运行时更新（设置页填入）
- *  - [testConnection] 用于设置页"测试连接"
+ *  - [baseUrl] / [apiKey] 可在运行时更新（设置页填入）
+ *  - 请求带 cache-buster（`?_t=...`），绕开 Cloudflare 等 CDN 的 4 小时缓存，
+ *    确保"改了规格 / 换了 Key"能立即拿到最新资产
  */
 class ReliveClient(
     baseUrl: String = DEFAULT_BASE,
@@ -38,9 +39,15 @@ class ReliveClient(
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
+    private fun buildUrl(): String {
+        val base = baseUrl.trim().trimEnd('/')
+        // 加 cache-buster，避免 CDN 返回旧缓存（关键！Cloudflare 默认缓存 4h）
+        return "$base$DISPLAY_BIN?_t=${System.currentTimeMillis()}"
+    }
+
     /**
      * 测试服务器地址 + API Key 是否可用。
-     * 先用 HEAD（轻量）探测；服务端不支持 HEAD 时回退 GET。
+     * 用带 cache-buster 的 GET，确保服务端**真正校验** Key 并返回设备位图。
      */
     fun testConnection(): TestResult {
         val base = baseUrl.trim().trimEnd('/')
@@ -50,51 +57,49 @@ class ReliveClient(
         }
         if (apiKey.trim().isEmpty()) return TestResult(false, "失败：API Key 为空")
 
-        val url = base + DISPLAY_BIN
-
-        // 1) 先试 HEAD
-        try {
-            val head = Request.Builder()
-                .url(url)
+        return try {
+            val req = Request.Builder()
+                .url(buildUrl())
                 .header("X-API-Key", apiKey.trim())
-                .head()
+                .header("Cache-Control", "no-cache")
+                .get()
                 .build()
-            http.newCall(head).execute().use { resp ->
+            http.newCall(req).execute().use { resp ->
                 when {
-                    resp.isSuccessful -> {
-                        val p = resp.header("X-Render-Profile")
-                        return TestResult(true, "连接成功" + if (!p.isNullOrEmpty()) " · 规格 $p" else "")
-                    }
                     resp.code == 401 || resp.code == 403 ->
-                        return TestResult(false, "失败：API Key 无效（HTTP ${resp.code}）")
+                        TestResult(false, "失败：API Key 无效（HTTP ${resp.code}）")
                     resp.code == 404 ->
-                        return TestResult(false, "失败：接口不存在（HTTP 404），请检查服务器地址")
-                    resp.code == 405 || resp.code == 501 || resp.code == 400 -> {
-                        // 不支持 HEAD，回退 GET
+                        TestResult(false, "失败：接口不存在（HTTP 404），请检查服务器地址")
+                    !resp.isSuccessful ->
+                        TestResult(false, "失败：HTTP ${resp.code} ${resp.message}")
+                    else -> {
+                        val profile = resp.header("X-Render-Profile")
+                        val assetId = resp.header("X-Asset-ID")
+                        val bytes = resp.body?.bytes() ?: ByteArray(0)
+                        if (profile.isNullOrEmpty()) {
+                            TestResult(false, "失败：返回内容不是设备位图（请检查地址）")
+                        } else if (bytes.isEmpty()) {
+                            TestResult(false, "失败：返回数据为空")
+                        } else {
+                            TestResult(
+                                true,
+                                "连接成功 · 规格 $profile · asset ${assetId ?: "-"} · ${bytes.size} 字节"
+                            )
+                        }
                     }
-                    else ->
-                        return TestResult(false, "失败：HTTP ${resp.code} ${resp.message}")
                 }
             }
-        } catch (_: Throwable) {
-            // 忽略，走 GET 兜底
-        }
-
-        // 2) GET 兜底
-        return try {
-            val r = fetchDisplayBlocking()
-            TestResult(true, "连接成功 · 规格 ${r.renderProfile} · ${r.bytes.size} 字节")
         } catch (t: Throwable) {
             TestResult(false, "失败：${t.localizedMessage ?: t.message ?: "未知错误"}")
         }
     }
 
-    /** 同步拉一次展示位图。供 [ReliveViewModel] 在 IO 协程里调用。 */
+    /** 同步拉一次展示位图（带 cache-buster）。供 [ReliveViewModel] 在 IO 协程里调用。 */
     fun fetchDisplayBlocking(): ReliveDisplay {
-        val url = baseUrl.trim().trimEnd('/') + DISPLAY_BIN
         val req = Request.Builder()
-            .url(url)
+            .url(buildUrl())
             .header("X-API-Key", apiKey.trim())
+            .header("Cache-Control", "no-cache")
             .get()
             .build()
         return http.newCall(req).execute().use { resp ->
