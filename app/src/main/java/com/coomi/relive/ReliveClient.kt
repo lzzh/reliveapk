@@ -93,8 +93,8 @@ class ReliveClient(
         return http.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw RuntimeException("Relive ${resp.code}: ${resp.message}")
             val bytes = resp.body!!.bytes()
-            if (bytes.size < EInkDecoder.FRAME_BYTES) {
-                throw RuntimeException("数据长度异常：${bytes.size} < ${EInkDecoder.FRAME_BYTES}")
+            if (bytes.size != EInkDecoder.FRAME_BYTES) {
+                throw RuntimeException("数据长度异常：${bytes.size} ≠ ${EInkDecoder.FRAME_BYTES}")
             }
             val checksum = resp.header("X-Checksum")
             val unchanged = checksum != null && checksum == lastChecksum

@@ -116,10 +116,9 @@ class ReliveViewModel(
                 try {
                     refreshFramed(t)
                 } catch (t2: Throwable) {
+                    // 两条路径都失败：**保留上一张已成功显示的图**，只更新错误提示。
+                    // 若此时本来就什么都没显示（如首次启动就离线），UI 会落到"加载中…"分支。
                     _error.value = "离线：${t2.message}"
-                    _photo.value = null
-                    _band.value = null
-                    _display.value = null
                 }
                 _lastRefreshMs.value = System.currentTimeMillis()
             } finally {
@@ -162,9 +161,16 @@ class ReliveViewModel(
     /**
      * 相框回退（服务端渲染好的 480×800 位图，含照片 + 文字，方向已由服务端校正）。
      * 回退**成功**不算错误：只在底部信息条显示提示，不点亮"离线"红色告警。
+     *
+     * 若服务端返回的 `X-Checksum` 与上次相同（`unchanged`）且已有回退图，则跳过重解码。
      */
     private suspend fun refreshFramed(trigger: Throwable) {
         val r = withContext(Dispatchers.IO) { client.fetchDisplayBlocking() }
+        if (r.unchanged && _display.value != null) {
+            _caption.value = "回退相框（${r.renderProfile}）· 内容未变 · 原图不可用：${trigger.message}"
+            _error.value = null
+            return
+        }
         val palette = EInkDecoder.paletteFor(r.renderProfile)
         val bmp = withContext(Dispatchers.IO) { r.bytes.decodeFrameSafely(palette) }
             ?: throw RuntimeException("相框位图解码失败")

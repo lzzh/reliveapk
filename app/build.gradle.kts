@@ -35,10 +35,25 @@ android {
         targetCompatibility = JavaVersion.VERSION_1_8
     }
     kotlinOptions { jvmTarget = "1.8" }
+
+    signingConfigs {
+        // 仓库内固定的 debug keystore：CI runner 是一次性的，每次构建自动生成的
+        // debug key 都不同，覆盖安装会因签名不一致而失败（还得卸载重装、配置全丢）。
+        // debug keystore 不是机密（Android 官方默认也是公开的 android/androiddebugkey）。
+        getByName("debug") {
+            storeFile = rootProject.file("keystore/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
         }
+        // debug 构建显式指向固定 keystore，保证每次 CI 出的 APK 签名一致、可直接覆盖安装
+        getByName("debug").signingConfig = signingConfigs.getByName("debug")
     }
 }
 
@@ -49,8 +64,10 @@ dependencies {
     implementation("androidx.compose.material:material")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.activity:activity-compose:1.8.2")
+    implementation("androidx.activity:activity-ktx:1.8.2")
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0")
 }

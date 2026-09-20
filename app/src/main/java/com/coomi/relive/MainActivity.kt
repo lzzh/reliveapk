@@ -6,6 +6,7 @@ import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -40,6 +41,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -63,6 +66,26 @@ fun normalizeBase(raw: String): String {
 
 class MainActivity : ComponentActivity() {
 
+    /**
+     * 挂到 ViewModelStore 上（而不是直接 `new`），这样：
+     *  - Activity 重建时复用同一个 VM，不会出现两个自动刷新循环；
+     *  - 真正销毁时 [ReliveViewModel.onCleared] 会被调用，协程作用域被取消，不会泄漏。
+     */
+    private val vm: ReliveViewModel by viewModels {
+        object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                val p = this@MainActivity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                return ReliveViewModel(
+                    ReliveClient(
+                        baseUrl = p.getString(KEY_BASE, "") ?: "",
+                        apiKey = p.getString(KEY_API, "") ?: ""
+                    )
+                ) as T
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -77,9 +100,6 @@ class MainActivity : ComponentActivity() {
         val savedBase = prefs.getString(KEY_BASE, "") ?: ""
         val savedKey = prefs.getString(KEY_API, "") ?: ""
         val savedRatio = prefs.getFloat(KEY_RATIO, DEFAULT_RATIO)
-
-        val client = ReliveClient(baseUrl = savedBase, apiKey = savedKey)
-        val vm = ReliveViewModel(client)
 
         setContent {
             MaterialTheme(colors = darkColors()) {

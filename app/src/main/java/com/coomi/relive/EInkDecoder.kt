@@ -26,6 +26,19 @@ object EInkDecoder {
     /** 单帧字节数（4-bit 双像素）。 */
     const val FRAME_BYTES = STREAM_W * STREAM_H / PIXELS_PER_BYTE   // 192000
 
+    /**
+     * 校验字节流长度是否正好是「480×800 4-bit」这一种规格。
+     *
+     * Relive 源码 `BuiltinRenderProfiles()` 里另有 `spectra6_1600x1200_*`（竖/横，预留），
+     * 它们的打包尺寸完全不同。若误把那种 bin 按 480×800 解，会得到一张乱图而不报错；
+     * 所以这里严格校验，长度不符就明确抛错、让上层走"解码失败"分支。
+     */
+    private fun requireFrame(data: ByteArray) {
+        require(data.size == FRAME_BYTES) {
+            "不是 480x800 的相框位图：got ${data.size} bytes, expected $FRAME_BYTES"
+        }
+    }
+
     /** 相框底部信息区（文字条）高度，与 Relive 源码 displayInfoHeight 一致。 */
     const val INFO_BAND_HEIGHT = 160
 
@@ -65,7 +78,7 @@ object EInkDecoder {
      * 服务端把文案 + 日期渲染在这条里，App 复用它做留白区文字。
      */
     fun decodeInfoBand(data: ByteArray, palette: IntArray = SPECTRA6_EINK): Bitmap {
-        require(data.size >= FRAME_BYTES) { "display.bin too short: ${data.size} < $FRAME_BYTES" }
+        requireFrame(data)
 
         val landscape = IntArray(STREAM_W * STREAM_H)
         var i = 0
@@ -94,9 +107,7 @@ object EInkDecoder {
      * @param palette nibble→RGB 调色板（不足 16 项自动兜底，不越界）
      */
     fun decode(data: ByteArray, palette: IntArray = SPECTRA6_EINK): Bitmap {
-        require(data.size >= FRAME_BYTES) {
-            "display.bin too short: ${data.size} < $FRAME_BYTES"
-        }
+        requireFrame(data)
 
         // 解出 landscape[row=0..479][col=0..799]
         val landscape = IntArray(STREAM_W * STREAM_H)
