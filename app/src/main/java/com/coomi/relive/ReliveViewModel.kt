@@ -6,9 +6,11 @@ import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -26,7 +28,7 @@ class ReliveViewModel(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
-    private val _display = MutableStateFlow<ImageBitmap?>(sampleBytes.decodeSafely())
+    private val _display = MutableStateFlow<ImageBitmap?>(sampleBytes.decodeSafely(false))
     val display: StateFlow<ImageBitmap?> = _display.asStateFlow()
 
     private val _assetId = MutableStateFlow("")
@@ -47,11 +49,36 @@ class ReliveViewModel(
     private val _conn = MutableStateFlow(ConnTest())
     val conn: StateFlow<ConnTest> = _conn.asStateFlow()
 
+    /** true = 屏幕友好鲜艳色，false = 墨水屏原色。 */
+    private val _screenColors = MutableStateFlow(false)
+    val screenColors: StateFlow<Boolean> = _screenColors.asStateFlow()
+
+    /** 最近一次成功拉取的原始字节，切换配色时本地重解码，无需重新下载。 */
+    @Volatile
+    private var lastBytes: ByteArray? = null
+
     init {
         refresh()
+        startAutoRefresh()
     }
 
-    /** 设置页：测试给定地址 + Key（用临时客户端，不影响当前配置）。 */
+    /** 自动刷新：相框场景，每 30 分钟拉一次。 */
+    private fun startAutoRefresh() {
+        scope.launch {
+            while (isActive) {
+                delay(30 * 60 * 1000L)
+                refresh()
+            }
+        }
+    }
+
+    /** 切换配色（本地重解码，立即生效）。 */
+    fun setScreenColors(enabled: Boolean) {
+        _screenColors.value = enabled
+        val b = lastBytes ?: return
+        _display.value = b.decodeSafely(enabled)
+    }
+
     fun testConfig(baseUrl: String, apiKey: String) {
         _conn.value = ConnTest(testing = true)
         scope.launch {
@@ -62,7 +89,6 @@ class ReliveViewModel(
         }
     }
 
-    /** 清空测试状态（打开设置页时）。 */
     fun resetConnTest() {
         _conn.value = ConnTest()
     }
@@ -82,8 +108,11 @@ class ReliveViewModel(
         scope.launch {
             try {
                 val r = withContext(Dispatchers.IO) { client.fetchDisplayBlocking() }
-                val bmp = withContext(Dispatchers.IO) { EInkDecoder.decode(r.bytes, EInkDecoder.SPECTRA6) }
-                _display.value = bmp.asImageBitmap()
+                lastBytes = r.bytes
+                if (!r.unchanged) {
+                    val bmp = withContext(Dispatchers.IO) { r.bytes.decodeSafely(_screenColors.value) }
+                    if (bmp != null) _display.value = bmp
+                }
                 _assetId.value = r.assetId
                 _serverTimeSec.value = r.serverTimeSec
                 _lastRefreshMs.value = System.currentTimeMillis()
@@ -97,9 +126,10 @@ class ReliveViewModel(
     }
 }
 
-/** 离线兜底：解码内置 display.bin（Spectra6 全彩，还原为正的竖版 480×800）。 */
-private fun ByteArray.decodeSafely(): ImageBitmap? = try {
-    EInkDecoder.decode(this, EInkDecoder.SPECTRA6).asImageBitmap()
+/** 解码内置/网络字节为正向竖版位图。 */
+private fun ByteArray.decodeSafely(screenColors: Boolean): ImageBitmap? = try {
+    val palette = if (screenColors) EInkDecoder.SPECTRA6_SCREEN else EInkDecoder.SPECTRA6_EINK
+    EInkDecoder.decode(this, palette).asImageBitmap()
 } catch (_: Throwable) {
     null
 }

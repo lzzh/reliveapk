@@ -3,6 +3,7 @@ package com.coomi.relive
 import android.content.Context
 import android.content.res.Configuration
 import android.os.Bundle
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -23,6 +24,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -40,7 +42,7 @@ import java.util.*
 private const val PREFS = "relive_prefs"
 private const val KEY_BASE = "server_base"
 private const val KEY_API = "api_key"
-const val DEFAULT_API_KEY = "sk-relive-REDACTED-1"
+private const val KEY_SCREEN_COLORS = "screen_colors"
 
 class MainActivity : ComponentActivity() {
 
@@ -53,14 +55,19 @@ class MainActivity : ComponentActivity() {
         controller.hide(WindowInsetsCompat.Type.systemBars())
         controller.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        // 相框场景：屏幕常亮
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val savedBase = prefs.getString(KEY_BASE, ReliveClient.DEFAULT_BASE) ?: ReliveClient.DEFAULT_BASE
-        val savedKey = prefs.getString(KEY_API, DEFAULT_API_KEY) ?: DEFAULT_API_KEY
+        // 不再硬编码任何 API Key：首次启动为空，强制用户在设置页填写
+        val savedKey = prefs.getString(KEY_API, "") ?: ""
+        val savedScreenColors = prefs.getBoolean(KEY_SCREEN_COLORS, false)
 
         val client = ReliveClient(baseUrl = savedBase, apiKey = savedKey)
         val sample = loadSample()
         val vm = ReliveViewModel(client, sample)
+        vm.setScreenColors(savedScreenColors)
 
         setContent {
             MaterialTheme(colors = darkColors()) {
@@ -68,12 +75,16 @@ class MainActivity : ComponentActivity() {
                     vm = vm,
                     initialBase = savedBase,
                     initialKey = savedKey,
-                    onSaveConfig = { base, key ->
+                    initialScreenColors = savedScreenColors,
+                    firstRun = savedKey.isBlank(),
+                    onSaveConfig = { base, key, screenColors ->
                         prefs.edit()
                             .putString(KEY_BASE, base)
                             .putString(KEY_API, key)
+                            .putBoolean(KEY_SCREEN_COLORS, screenColors)
                             .apply()
                         vm.applyConfig(base, key)
+                        vm.setScreenColors(screenColors)
                     }
                 )
             }
@@ -92,7 +103,9 @@ fun ReliveScreen(
     vm: ReliveViewModel,
     initialBase: String,
     initialKey: String,
-    onSaveConfig: (String, String) -> Unit
+    initialScreenColors: Boolean,
+    firstRun: Boolean,
+    onSaveConfig: (String, String, Boolean) -> Unit
 ) {
     val context = LocalContext.current
 
@@ -102,11 +115,13 @@ fun ReliveScreen(
     val error by vm.error.collectAsStateWithLifecycle()
     val lastRefreshMs by vm.lastRefreshMs.collectAsStateWithLifecycle()
     val conn by vm.conn.collectAsStateWithLifecycle()
+    val screenColors by vm.screenColors.collectAsStateWithLifecycle()
 
     var controlsVisible by remember { mutableStateOf(false) }
-    var showSettings by remember { mutableStateOf(false) }
+    // 首次启动（无 Key）自动弹出设置
+    var showSettings by remember { mutableStateOf(firstRun) }
 
-    // 设备方向：横屏 / 竖屏
+    // 设备方向：跟随物理方向（Manifest 未锁定）
     val configuration = LocalConfiguration.current
     val deviceLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
@@ -131,18 +146,19 @@ fun ReliveScreen(
                 bitmap = oriented!!,
                 contentDescription = "往年今日照片",
                 contentScale = ContentScale.Crop,
+                // 最近邻缩放：保持墨水屏抖动点锐利，不糊
+                filterQuality = FilterQuality.None,
                 modifier = Modifier.fillMaxSize()
             )
         } else {
             Text(
-                text = "无数据",
+                text = "无数据\n点屏幕 → ⚙ 设置 API Key",
                 color = Color.Gray,
                 fontSize = 14.sp,
                 modifier = Modifier.align(Alignment.Center)
             )
         }
 
-        // 顶部栏（控件可见时）
         AnimatedVisibility(
             visible = controlsVisible,
             enter = fadeIn(),
@@ -182,7 +198,6 @@ fun ReliveScreen(
             }
         }
 
-        // 底部信息条（控件可见时）
         AnimatedVisibility(
             visible = controlsVisible,
             enter = fadeIn(),
@@ -215,7 +230,6 @@ fun ReliveScreen(
             }
         }
 
-        // 刷新按钮（控件可见时，右下）
         AnimatedVisibility(
             visible = controlsVisible,
             enter = fadeIn(),
@@ -238,10 +252,11 @@ fun ReliveScreen(
         SettingsDialog(
             currentBase = initialBase,
             currentKey = initialKey,
+            currentScreenColors = screenColors,
             conn = conn,
             onTest = { base, key -> vm.testConfig(base, key) },
-            onSave = { base, key ->
-                onSaveConfig(base, key)
+            onSave = { base, key, sc ->
+                onSaveConfig(base, key, sc)
                 showSettings = false
                 Toast.makeText(context, "已保存并刷新", Toast.LENGTH_SHORT).show()
             },
@@ -254,13 +269,15 @@ fun ReliveScreen(
 private fun SettingsDialog(
     currentBase: String,
     currentKey: String,
+    currentScreenColors: Boolean,
     conn: ConnTest,
     onTest: (String, String) -> Unit,
-    onSave: (String, String) -> Unit,
+    onSave: (String, String, Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
     var base by remember { mutableStateOf(currentBase) }
     var key by remember { mutableStateOf(currentKey) }
+    var screenColors by remember { mutableStateOf(currentScreenColors) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -291,6 +308,14 @@ private fun SettingsDialog(
 
                 Spacer(Modifier.height(12.dp))
 
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = screenColors, onCheckedChange = { screenColors = it })
+                    Spacer(Modifier.width(4.dp))
+                    Text("屏幕鲜艳配色（LCD/OLED 更亮）", fontSize = 13.sp)
+                }
+
+                Spacer(Modifier.height(8.dp))
+
                 when {
                     conn.testing -> Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
@@ -317,7 +342,7 @@ private fun SettingsDialog(
                 TextButton(onClick = onDismiss) { Text("取消") }
                 TextButton(
                     enabled = !conn.testing,
-                    onClick = { onSave(base.trim(), key.trim()) }
+                    onClick = { onSave(base.trim(), key.trim(), screenColors) }
                 ) { Text("保存") }
             }
         }

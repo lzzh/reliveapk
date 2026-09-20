@@ -45,13 +45,24 @@
 ### 解码：还原正向竖版图
 
 服务端写盘前会把 **480宽×800高** 的画布**逆时针旋转 90°**，再按 **800列×480行** 打包
-（源码 `encodeIndexedBinary` / `rotateIndexed90CCW`，供 ESP32 横屏直接 `display()`）。
+（源码 `encodeIndexedBinary` / `rotateIndexed90CCW`，供 ESP32 横屏直接 `display()`）：
 
-因此 App 端还原公式为：
+```go
+// rotateIndexed90CCW(srcWidth=480, srcHeight=800)
+dstX := srcHeight - 1 - srcY   // = 799 - srcY
+dstY := srcX
+rotated[dstY * dstWidth + dstX] = indexed[srcY*srcWidth + srcX]
+```
+
+因此 `landscape[col][row]` 与竖版像素的对应关系为
+`landscape[x][799 - y] = portrait(x, y)`，App 端还原公式即：
 
 ```
 portrait(x, y) = landscape[x][STREAM_W - 1 - y]     // x∈[0,479], y∈[0,799]
 ```
+
+> ⚠️ 易错点：不要按"逆时针转 90°"直接反推成 `landscape[479-x][y]`——
+> 那会得到镜像+倒置的图。以源码公式为准（已用真数据出图验证）。
 
 ## 文件结构
 
@@ -78,9 +89,13 @@ relive-photo-app/
 
 ## 注意
 
-- App 默认**锁横屏**（`android:screenOrientation="landscape"`）。若要跟随手机物理旋转，
-  删掉该属性即可（方向自适应逻辑已内置）。
-- API Key 存于 `SharedPreferences("relive_prefs")`，首次启动用内置默认值；
-  建议在设置页改成你自己的设备 Key。
+- App **跟随设备物理方向**（Manifest 未锁定方向）；图片方向与屏幕不一致时自动旋转 90° + `Crop` 铺满。
+- API Key **不再硬编码**：首次启动弹出设置页，必须手动填写（避免公开仓库泄露 Key）。
+- 缩放用 `FilterQuality.None`（最近邻），保持墨水屏抖动点锐利。
+- 调色板可切换：**墨水屏原色** / **屏幕鲜艳色**（设置页勾选，LCD/OLED 上更亮）。
+- 响应校验：长度必须等于 192,000 字节；`X-Checksum` 与上次相同时跳过重绘。
+- 相框模式：屏幕常亮 + 每 30 分钟自动刷新。
+- **CDN 缓存**：`display.bin` 会被 Cloudflare 缓存 4 小时且缓存键不含 API Key，
+  因此 App 请求自动附加 `?_t=<时间戳>` 绕开缓存；否则改规格/换 Key 后拿到的仍是旧图。
 - 服务端切换 RenderProfile 后（如 `spectra6_480x800` → 全彩），
   需在 Relive 后台**触发一次展示批次生成**，`display.bin` 才会更新为新规格资产。
