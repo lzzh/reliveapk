@@ -1,53 +1,86 @@
 # Relive 照片 Android App
 
-连接 Relive 服务器（`relive.luckyson.online`），拉取**往年今日**的预渲染墨水屏位图，
-用 4-bit 双像素解码后全屏展示。离线时兜底显示内置图。
+连接自部署的 [Relive](https://github.com/davidhoo/relive) 服务器，
+拉取「往年今日」预渲染的墨水屏位图（4-bit 双像素流），解码后**全屏沉浸式**展示。
+
+- **全屏无边框**：隐藏状态栏/导航栏
+- **触屏显隐控件**：默认隐藏，点一下屏幕才出现标题 / 状态 / 刷新 / 设置
+- **跟随屏幕方向**：设备横屏 + 图片竖版时自动旋转 90°，`Crop` 铺满屏幕
+- **设置内填 API Key**：点屏幕 → ⚙ → 输入 Key → 保存（持久化，立即生效）
+- **多规格自适应**：支持 Spectra6 全彩 6 色 / GDEM075F52 4 色，读 `X-Render-Profile` 自动选调色板
+- **离线兜底**：拉不到网时显示内置位图
 
 ## 快速构建
 
 ```bash
-cd relive-photo-app
 ./gradlew assembleDebug
 # 产物：app/build/outputs/apk/debug/app-debug.apk
 ```
 
-本机 proot 缺 Android SDK + Java，无法直接出 APK。
-推荐：把整个目录拷到有 Android 工具链的机器上跑 `./gradlew assembleDebug`，
-或 `./gradlew installDebug` 直连手机。
+或在 GitHub Actions 里自动出包：推送到 `master` 后，进入
+**Actions → Build APK → 最新 run → Artifacts → `relive-photo-apk`**，解压即得 APK。
 
-## 文件结构
-
-```
-relive-photo-app/
-├── settings.gradle.kts
-├── build.gradle.kts
-├── gradle.properties
-└── app/
-    ├── build.gradle.kts
-    └── src/main/
-        ├── AndroidManifest.xml
-        ├── assets/sample/display.bin        # 离线兜底图（192000 字节真数据）
-        ├── res/values/{strings,themes}.xml
-        └── java/com/coomi/relive/
-            ├── MainActivity.kt              # Compose 主界面 + ViewModel 接线
-            ├── ReliveViewModel.kt           # 状态管理（拉取/解码/兜底）
-            ├── ReliveClient.kt              # OkHttp 调 X-API-Key 接口
-            └── EInkDecoder.kt               # 4-bit 双像素流 → Bitmap
-```
-
-## 关键约定（与 Relive ESP32 完全一致）
+## 关键约定（与 Relive ESP32 固件完全一致）
 
 | 项 | 值 |
 |---|---|
 | 端点 | `GET /api/v1/device/display.bin` |
 | 鉴权 | Header `X-API-Key: sk-relive-...` |
-| 返回 | 192,000 字节 4-bit 双像素流（800×480） |
-| 响应头 | `X-Asset-ID` / `X-Checksum`(sha256) / `X-Server-Time` |
-| 调色板 | 0 黑 / 1 白 / 2 黄 / 3 红 / 5 蓝 / 6 绿 |
+| 返回 | 192,000 字节 4-bit 双像素流 |
+| 响应头 | `X-Asset-ID` / `X-Checksum`(sha256) / `X-Server-Time` / `X-Render-Profile` |
+| 打包 | 每字节 2 像素：高 4 位 = 左，低 4 位 = 右 |
+
+### 调色板（nibble → RGB，对齐 Relive 源码 `display_assets.go`）
+
+| nibble | Spectra6 全彩 | GDEM075F52 四色 |
+|---|---|---|
+| 0 | 黑 (0,0,0) | 黑 (0,0,0) |
+| 1 | 白 (255,255,255) | 白 (255,255,255) |
+| 2 | 黄 (164,154,49) | 黄 (233,188,41) |
+| 3 | 红 (126,39,39) | 红 (196,44,29) |
+| 4 | 硬件保留（占位） | — |
+| 5 | 蓝 (31,71,139) | — |
+| 6 | 绿 (54,78,68) | — |
+
+### 解码：还原正向竖版图
+
+服务端写盘前会把 **480宽×800高** 的画布**逆时针旋转 90°**，再按 **800列×480行** 打包
+（源码 `encodeIndexedBinary` / `rotateIndexed90CCW`，供 ESP32 横屏直接 `display()`）。
+
+因此 App 端还原公式为：
+
+```
+portrait(x, y) = landscape[x][STREAM_W - 1 - y]     // x∈[0,479], y∈[0,799]
+```
+
+## 文件结构
+
+```
+relive-photo-app/
+├── .github/workflows/build-apk.yml   # GitHub Actions 自动出包
+├── settings.gradle.kts               # 仓库 + 插件源（google/mavenCentral）
+├── build.gradle.kts                  # AGP 8.5.0 / Kotlin 1.9.22
+├── gradle.properties
+└── app/
+    ├── build.gradle.kts              # Compose + OkHttp + lifecycle + core-ktx
+    └── src/main/
+        ├── AndroidManifest.xml       # 横屏 + 图标 + INTERNET
+        ├── assets/sample/display.bin # 离线兜底图（192,000 字节）
+        ├── res/mipmap-*/ic_launcher.png
+        ├── res/values/{strings,themes}.xml
+        └── java/com/coomi/relive/
+            ├── MainActivity.kt       # 全屏 + 触屏显隐 + 设置弹窗 + 方向自适应
+            ├── ReliveViewModel.kt    # 状态管理（拉取/解码/兜底/换 Key）
+            ├── ReliveClient.kt       # OkHttp + X-API-Key（Key 可运行时更新）
+            ├── EInkDecoder.kt        # 4-bit 流 → 正向竖版 Bitmap
+            └── ImageRotate.kt        # 顺时针 90° 旋转（方向跟随）
+```
 
 ## 注意
 
-- 图片解码后是 **800×480 横屏**位图，竖屏 App 里用 `ContentScale.Fit` 自动适配；
-- 如需横屏满屏显示，把 `AndroidManifest` 里 `android:screenOrientation` 改成 `landscape`；
-- 当前 `apiKey` 硬编码在 `MainActivity.onCreate` 里，生产应移到 `SharedPreferences` / 配置；
-- 内置兜底图是真实拉取过的 `display.bin`（本次会话已验证解码出 2024-02-11 聚餐照）。
+- App 默认**锁横屏**（`android:screenOrientation="landscape"`）。若要跟随手机物理旋转，
+  删掉该属性即可（方向自适应逻辑已内置）。
+- API Key 存于 `SharedPreferences("relive_prefs")`，首次启动用内置默认值；
+  建议在设置页改成你自己的设备 Key。
+- 服务端切换 RenderProfile 后（如 `spectra6_480x800` → 全彩），
+  需在 Relive 后台**触发一次展示批次生成**，`display.bin` 才会更新为新规格资产。
