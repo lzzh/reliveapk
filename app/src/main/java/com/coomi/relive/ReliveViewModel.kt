@@ -22,37 +22,37 @@ data class ConnTest(
 )
 
 /**
- * 状态中枢。
- *
- * 取图策略（自动，无需用户选择）：
+ * 状态中枢。取图策略（自动）：
  *  1. `/device/display` 拿推荐照片的 photo_id + asset_id
- *  2. `/photos/{photo_id}/image` 拿**原图**（不裁切）
- *  3. `/display/assets/{asset_id}/bin` 拿同源文字条（底部 160px）
- *  → 交由 [PageComposer] 按**照片自身横竖**决定白边位置（横图右、竖图下）
+ *  2. `/photos/{photo_id}/image` 拿**原图**（高清、不裁切、不降色）
+ *  3. 同时取 `/display/assets/{asset_id}/bin` 的底部文字条 → 解析出标题 + 日期/地点
+ *  4. 由 [PageComposer] 按**照片自身横竖**排版（横图右白边、竖图下白边）
  *
- * 任一步失败 → 回退到相框模式（`/device/display.bin` 的 480×800 位图）。
+ * 解析文字：从文字条 Bitmap 中提取纯文本（OCR 太贵，改为从 JSON 里没有，
+ * 故直接读取文字条并作为位图贴进留白区——保留服务端排版）。
+ * 任一步失败 → 回退到服务端 480×800 相框位图。
  */
 class ReliveViewModel(
-    private val client: ReliveClient,
-    sampleBytes: ByteArray
+    private val client: ReliveClient
 ) : ViewModel() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
-    /** 相框模式兜底位图（也是离线内置图）。 */
-    private val _display = MutableStateFlow<ImageBitmap?>(sampleBytes.decodeFrameSafely(false))
-    val display: StateFlow<ImageBitmap?> = _display.asStateFlow()
-
-    /** 合成用：原照片。 */
+    /** 合成用：原照片（高清）。 */
     private val _photo = MutableStateFlow<ImageBitmap?>(null)
     val photo: StateFlow<ImageBitmap?> = _photo.asStateFlow()
 
-    /** 合成用：文字条。 */
+    /** 文字条位图（服务端排版好的文案 + 日期）。 */
     private val _band = MutableStateFlow<ImageBitmap?>(null)
     val band: StateFlow<ImageBitmap?> = _band.asStateFlow()
 
-    private val _assetId = MutableStateFlow("")
-    val assetId: StateFlow<String> = _assetId.asStateFlow()
+    /** 附件文案（用于底部信息条）。 */
+    private val _caption = MutableStateFlow("")
+    val caption: StateFlow<String> = _caption.asStateFlow()
+
+    /** 相框回退位图。 */
+    private val _display = MutableStateFlow<ImageBitmap?>(null)
+    val display: StateFlow<ImageBitmap?> = _display.asStateFlow()
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
@@ -66,13 +66,6 @@ class ReliveViewModel(
     private val _conn = MutableStateFlow(ConnTest())
     val conn: StateFlow<ConnTest> = _conn.asStateFlow()
 
-    /** true = 屏幕鲜艳配色，false = 墨水屏原色（仅相框兜底位图用）。 */
-    private val _screenColors = MutableStateFlow(false)
-    val screenColors: StateFlow<Boolean> = _screenColors.asStateFlow()
-
-    @Volatile
-    private var lastFrameBytes: ByteArray? = null
-
     init {
         refresh()
         startAutoRefresh()
@@ -85,12 +78,6 @@ class ReliveViewModel(
                 refresh()
             }
         }
-    }
-
-    fun setScreenColors(enabled: Boolean) {
-        _screenColors.value = enabled
-        val b = lastFrameBytes ?: return
-        _display.value = b.decodeFrameSafely(enabled)
     }
 
     fun testConfig(baseUrl: String, apiKey: String) {
@@ -121,12 +108,12 @@ class ReliveViewModel(
             try {
                 refreshComposed()
             } catch (t: Throwable) {
-                // 回退：相框模式
                 try {
-                    refreshFramed()
-                    _error.value = "已回退相框模式：${t.message}"
+                    refreshFramed(t)
                 } catch (t2: Throwable) {
                     _error.value = "离线：${t2.message}"
+                    _photo.value = null
+                    _band.value = null
                 }
                 _lastRefreshMs.value = System.currentTimeMillis()
             } finally {
@@ -135,18 +122,17 @@ class ReliveViewModel(
         }
     }
 
-    /** 原图 + 文字条（自动按图片横竖排版）。 */
+    /** 原图 + 文字条（高清，自动排版）。 */
     private suspend fun refreshComposed() {
         val info = withContext(Dispatchers.IO) { client.fetchDeviceDisplayInfo() }
         if (info.photoId <= 0) throw RuntimeException("未取到推荐照片")
 
         val photoBytes = withContext(Dispatchers.IO) { client.fetchPhotoImageBytes(info.photoId) }
-        val photo = withContext(Dispatchers.IO) { photoBytes.decodeDownsampled(2048) }
+        val photo = withContext(Dispatchers.IO) { photoBytes.decodeDownsampled(1920) }
             ?: throw RuntimeException("原图解码失败")
 
         val band = try {
             val frameBytes = withContext(Dispatchers.IO) { client.fetchAssetBin(info.assetId) }
-            lastFrameBytes = frameBytes
             withContext(Dispatchers.IO) {
                 EInkDecoder.decodeInfoBand(frameBytes).asImageBitmap()
             }
@@ -156,29 +142,29 @@ class ReliveViewModel(
 
         _photo.value = photo
         _band.value = band
-        _assetId.value = "photo ${info.photoId}"
+        _caption.value = buildString {
+            append("photo ${info.photoId}")
+            info.batchDate.takeIf { it.isNotBlank() }?.let { append(" · $it") }
+        }
+        _display.value = null
         _lastRefreshMs.value = System.currentTimeMillis()
     }
 
-    /** 相框模式（480×800 位图）。 */
-    private suspend fun refreshFramed() {
+    /** 相框回退（480×800 位图）。 */
+    private suspend fun refreshFramed(trigger: Throwable) {
         val r = withContext(Dispatchers.IO) { client.fetchDisplayBlocking() }
-        lastFrameBytes = r.bytes
-        if (!r.unchanged) {
-            val bmp = withContext(Dispatchers.IO) { r.bytes.decodeFrameSafely(_screenColors.value) }
-            if (bmp != null) _display.value = bmp
-        }
+        val bmp = withContext(Dispatchers.IO) { r.bytes.decodeFrameSafely() }
+        _display.value = bmp
         _photo.value = null
         _band.value = null
-        _assetId.value = r.assetId
-        _lastRefreshMs.value = System.currentTimeMillis()
+        _caption.value = "回退相框（${r.renderProfile}）"
+        _error.value = "原图不可用，已回退：${trigger.message}"
     }
 }
 
-/** 解码 480×800 相框位图。 */
-private fun ByteArray.decodeFrameSafely(screenColors: Boolean): ImageBitmap? = try {
-    val palette = if (screenColors) EInkDecoder.SPECTRA6_SCREEN else EInkDecoder.SPECTRA6_EINK
-    EInkDecoder.decode(this, palette).asImageBitmap()
+/** 解码 480×800 相框位图（Spectra6 全彩）。 */
+private fun ByteArray.decodeFrameSafely(): ImageBitmap? = try {
+    EInkDecoder.decode(this, EInkDecoder.SPECTRA6_EINK).asImageBitmap()
 } catch (_: Throwable) {
     null
 }

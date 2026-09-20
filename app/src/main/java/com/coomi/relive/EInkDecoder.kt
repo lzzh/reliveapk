@@ -37,14 +37,6 @@ object EInkDecoder {
         0xFF364E44.toInt(), 0xFF010101.toInt()
     )
 
-    /** 屏幕友好色（LCD/OLED 上更鲜艳，避免发灰）。 */
-    val SPECTRA6_SCREEN: IntArray = intArrayOf(
-        0xFF101010.toInt(), 0xFFFFFFFF.toInt(),
-        0xFFFFC400.toInt(), 0xFFE53935.toInt(),
-        0xFF101010.toInt(), 0xFF1E88E5.toInt(),
-        0xFF43A047.toInt(), 0xFF101010.toInt()
-    )
-
     /** GDEM075F52 四色（墨水屏原色）。 */
     val GDEM4_EINK: IntArray = intArrayOf(
         0xFF000000.toInt(), 0xFFFFFFFF.toInt(),
@@ -53,16 +45,6 @@ object EInkDecoder {
         0xFF808080.toInt(), 0xFF808080.toInt()
     )
 
-    /** 屏幕友好四色。 */
-    val GDEM4_SCREEN: IntArray = intArrayOf(
-        0xFF101010.toInt(), 0xFFFFFFFF.toInt(),
-        0xFFFFC400.toInt(), 0xFFE53935.toInt(),
-        0xFF808080.toInt(), 0xFF808080.toInt(),
-        0xFF808080.toInt(), 0xFF808080.toInt()
-    )
-
-    /** 兼容旧调用：默认全彩墨水屏原色。 */
-    val SPECTRA6: IntArray get() = SPECTRA6_EINK
 
     /** 安全取色：索引越界（如 nibble 8..15 或调色板缺项）时兜底为黑色，绝不崩溃。 */
     private fun safe(palette: IntArray, index: Int): Int =
