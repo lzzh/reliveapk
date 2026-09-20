@@ -17,7 +17,7 @@ import android.graphics.Matrix
  */
 object EInkDecoder {
 
-    // 默认竖版规格
+    // 默认竖版规格（宽 480 × 高 800，与 Relive 源码 BuiltinRenderProfiles 一致）
     const val WIDTH = 480
     const val HEIGHT = 800
     const val PIXELS_PER_BYTE = 2
