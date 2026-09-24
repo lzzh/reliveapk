@@ -14,7 +14,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.onSizeChanged
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -178,11 +177,24 @@ fun ReliveScreen(
     // 底部文字白条占屏比例（可在设置里自定义）
     var bandRatio by remember { mutableStateOf(initialRatio) }
 
+    // 用标准 Android API（ViewTreeObserver 布局监听）取整屏像素，
+    // 彻底绕开不确定的 Compose 尺寸扩展（onSizeChanged/onGloballyPositioned 在此 BOM 解析不到）
+    val rootView = androidx.compose.ui.platform.LocalView.current
+    LaunchedEffect(rootView) {
+        val listener = android.view.ViewTreeObserver.OnGlobalLayoutListener {
+            fullW = rootView.width
+            fullH = rootView.height
+            if (rootView.width > 0 && rootView.height > 0) {
+                rootView.viewTreeObserver.removeOnGlobalLayoutListener(listener)
+            }
+        }
+        rootView.viewTreeObserver.addOnGlobalLayoutListener(listener)
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .onSizeChanged { fullW = it.width; fullH = it.height }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
