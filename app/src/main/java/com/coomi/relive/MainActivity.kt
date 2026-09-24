@@ -205,7 +205,9 @@ fun ReliveScreen(
         if (photo != null) {
             // 主路径：原图铺满上方 + 底部窄文字条（白条高度可在设置里调）
             // 用 View 真全屏像素合成位图，FillBounds 1:1 铺满，零黑边
+            // 旋转/尺寸变化时先清空旧方向位图，避免旧位图在新画幅下短暂拉伸造成变形
             LaunchedEffect(photo, band, fullW, fullH, bandRatio) {
+                pageBitmap = null
                 val p = photo ?: return@LaunchedEffect
                 if (fullW <= 0 || fullH <= 0) return@LaunchedEffect
                 pageBitmap = withContext(Dispatchers.Default) {
@@ -217,7 +219,7 @@ fun ReliveScreen(
                 Image(
                     bitmap = pb,
                     contentDescription = "往年今日照片",
-                    contentScale = ContentScale.FillBounds,
+                    contentScale = ContentScale.Crop,
                     filterQuality = FilterQuality.Medium,
                     modifier = Modifier.fillMaxSize()
                 )
