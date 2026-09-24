@@ -17,6 +17,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.*
@@ -89,11 +90,18 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // 全屏沉浸：双保险隐藏系统栏（Android 13+ 下 hide() 单独调用可能残留状态栏空白，
+        // 叠加 SYSTEM_UI_FLAG 强制全屏，让照片真正占满整屏）
         WindowCompat.setDecorFitsSystemWindows(window, false)
         val controller = WindowInsetsControllerCompat(window, window.decorView)
-        controller.hide(WindowInsetsCompat.Type.systemBars())
+        controller.hide(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars())
         controller.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        window.decorView.systemUiVisibility = (
+            android.view.View.SYSTEM_UI_FLAG_LOW_PROFILE or
+            android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+            android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
+        )
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -212,36 +220,29 @@ fun ReliveScreen(
             )
         }
 
-        AnimatedVisibility(
-            visible = controlsVisible,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.TopCenter)
-        ) {
-            Row(
+        // 顶部任务栏已去掉：照片占满全屏，设置入口改为左上角独立小齿轮
+        if (controlsVisible) {
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0x88000000))
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .align(Alignment.TopStart)
+                    .padding(10.dp)
             ) {
-                Text("Relive · 往年今日", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (isRefreshing) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            color = Color.White,
-                            strokeWidth = 2.dp
-                        )
-                        Spacer(Modifier.width(10.dp))
-                    }
-                    IconButton(onClick = {
+                IconButton(
+                    onClick = {
                         vm.resetConnTest()
                         showSettings = true
-                    }) {
-                        Icon(Icons.Default.Settings, contentDescription = "设置", tint = Color.White)
-                    }
+                    },
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(Color(0x88000000), CircleShape),
+                    contentColor = Color.White
+                ) {
+                    Icon(
+                        Icons.Default.Settings,
+                        contentDescription = "设置",
+                        modifier = Modifier.size(22.dp),
+                        tint = Color.White
+                    )
                 }
             }
         }
