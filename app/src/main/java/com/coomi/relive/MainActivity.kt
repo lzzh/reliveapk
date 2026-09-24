@@ -219,7 +219,7 @@ fun ReliveScreen(
                 Image(
                     bitmap = pb,
                     contentDescription = "往年今日照片",
-                    contentScale = ContentScale.Crop,
+                    contentScale = ContentScale.FillBounds,
                     filterQuality = FilterQuality.Medium,
                     modifier = Modifier.fillMaxSize()
                 )
