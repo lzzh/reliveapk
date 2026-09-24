@@ -171,7 +171,7 @@ fun ReliveScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .onSizeChanged { w, h -> fullW = w; fullH = h }
+            .onSizeChanged { size -> fullW = size.width; fullH = size.height }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
@@ -208,7 +208,7 @@ fun ReliveScreen(
             Image(
                 bitmap = display!!,
                 contentDescription = "回退相框位图",
-                contentScale = ContentScale.Crop,
+                contentScale = ContentScale.Fit,
                 filterQuality = FilterQuality.Medium,
                 modifier = Modifier.fillMaxSize()
             )
