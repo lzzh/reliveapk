@@ -10,6 +10,11 @@ android {
         applicationId = "com.coomi.relive"
         minSdk = 26
         targetSdk = 34
+        // 32 位支持：项目无原生库（.so），Compose 1.6.x 亦为纯 Java/Kotlin，
+        // 显式纳入 armeabi-v7a / x86 供 32 位设备安装。
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+        }
         // 版本号从 git 自动派生，保证每次提交都有唯一版本，便于识别新旧。
         // 注意：Gradle Kotlin DSL 里 `java` 会被解析成 JavaPluginExtension 扩展，
         // 所以这里不能写 java.text.* / java.util.*（会 Unresolved reference），
