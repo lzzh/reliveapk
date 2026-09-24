@@ -221,8 +221,9 @@ fun ReliveScreen(
                 // 不一致（旋转过渡帧的旧位图）时用 Crop，避免旧位图被拉伸变形
                 val containerRatio = fullW.toFloat() / fullH.coerceAtLeast(1)
                 val bm = pb.asAndroidBitmap()
-                val bitmapRatio = bm.width.toFloat() / bm.height.coerceAtLeast(1f)
-                val match = Math.abs(containerRatio - bitmapRatio) / containerRatio < 0.02f
+                val bitmapRatio = bm.width.toFloat() / bm.height.coerceAtLeast(1).toFloat()
+                val diffRatio = kotlin.math.abs(containerRatio - bitmapRatio) / containerRatio.coerceAtLeast(0.0001f)
+                val match = diffRatio < 0.02f
                 Image(
                     bitmap = pb,
                     contentDescription = "往年今日照片",
