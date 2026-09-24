@@ -234,8 +234,7 @@ fun ReliveScreen(
                     },
                     modifier = Modifier
                         .size(40.dp)
-                        .background(Color(0x88000000), CircleShape),
-                    contentColor = Color.White
+                        .background(Color(0x88000000), CircleShape)
                 ) {
                     Icon(
                         Icons.Default.Settings,
