@@ -104,6 +104,16 @@ class MainActivity : ComponentActivity() {
         )
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
+        // 关键：让内容画进刘海/挖孔区。窗口默认 LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT，
+        // 即使状态栏已隐藏，顶部刘海高度区域仍是黑边（Compose 内容没铺到那里）。
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            val mode = if (android.os.Build.VERSION.SDK_INT >= 30)
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            else
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            window.attributes = window.attributes.apply { layoutInDisplayCutoutMode = mode }
+        }
+
         val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val savedBase = prefs.getString(KEY_BASE, "") ?: ""
         val savedKey = prefs.getString(KEY_API, "") ?: ""
@@ -160,24 +170,18 @@ fun ReliveScreen(
     var controlsVisible by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(!configured) }
     var pageBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
-    // 真全屏像素尺寸（View 实际宽高，含状态栏/导航栏整屏）。
+    // 真全屏像素尺寸（含状态栏/导航栏整屏）。用 onSizeChanged 取 Compose 实际渲染像素，
     // 用它做合成位图，确保 FillBounds 1:1 铺满、零黑边。
     var fullW by remember { mutableStateOf(0) }
     var fullH by remember { mutableStateOf(0) }
     // 底部文字白条占屏比例（可在设置里自定义）
     var bandRatio by remember { mutableStateOf(initialRatio) }
 
-    val root = androidx.compose.ui.platform.LocalView.current
-    androidx.compose.runtime.SideEffect {
-        // View 实际渲染尺寸 = 整屏像素（已含状态栏区）
-        fullW = root.width
-        fullH = root.height
-    }
-
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .onSizeChanged { size -> fullW = size.width; fullH = size.height }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
