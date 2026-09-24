@@ -233,7 +233,7 @@ fun ReliveScreen(
             Image(
                 bitmap = display!!,
                 contentDescription = "回退相框位图",
-                contentScale = ContentScale.Fit,
+                contentScale = ContentScale.Crop,
                 filterQuality = FilterQuality.Medium,
                 modifier = Modifier.fillMaxSize()
             )
