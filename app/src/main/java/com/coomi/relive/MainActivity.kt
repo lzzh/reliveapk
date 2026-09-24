@@ -160,6 +160,10 @@ fun ReliveScreen(
     var controlsVisible by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(!configured) }
     var pageBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+    // 真全屏像素尺寸（View 实际宽高，含状态栏/导航栏整屏）。
+    // 用它做合成位图，确保 FillBounds 1:1 铺满、零黑边。
+    var fullW by remember { mutableStateOf(0) }
+    var fullH by remember { mutableStateOf(0) }
     // 底部文字白条占屏比例（可在设置里自定义）
     var bandRatio by remember { mutableStateOf(initialRatio) }
 
@@ -167,6 +171,7 @@ fun ReliveScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .onSizeChanged { w, h -> fullW = w; fullH = h }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
@@ -174,30 +179,28 @@ fun ReliveScreen(
     ) {
         if (photo != null) {
             // 主路径：原图铺满上方 + 底部窄文字条（白条高度可在设置里调）
-            BoxWithConstraints(Modifier.fillMaxSize()) {
-                val wPx = constraints.maxWidth
-                val hPx = constraints.maxHeight
-                LaunchedEffect(photo, band, wPx, hPx, bandRatio) {
-                    val p = photo ?: return@LaunchedEffect
-                    pageBitmap = withContext(Dispatchers.Default) {
-                        PageComposer.composeFull(p, band, wPx, hPx, bandRatio)
-                    }
+            // 用 View 真全屏像素合成位图，FillBounds 1:1 铺满，零黑边
+            LaunchedEffect(photo, band, fullW, fullH, bandRatio) {
+                val p = photo ?: return@LaunchedEffect
+                if (fullW <= 0 || fullH <= 0) return@LaunchedEffect
+                pageBitmap = withContext(Dispatchers.Default) {
+                    PageComposer.composeFull(p, band, fullW, fullH, bandRatio)
                 }
-                val pb = pageBitmap
-                if (pb != null) {
-                    Image(
-                        bitmap = pb,
-                        contentDescription = "往年今日照片",
-                        contentScale = ContentScale.FillBounds,
-                        filterQuality = FilterQuality.Medium,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    CircularProgressIndicator(
-                        modifier = Modifier.align(Alignment.Center),
-                        color = Color.White
-                    )
-                }
+            }
+            val pb = pageBitmap
+            if (pb != null) {
+                Image(
+                    bitmap = pb,
+                    contentDescription = "往年今日照片",
+                    contentScale = ContentScale.FillBounds,
+                    filterQuality = FilterQuality.Medium,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                CircularProgressIndicator(
+                    modifier = Modifier.align(Alignment.Center),
+                    color = Color.White
+                )
             }
         } else if (display != null) {
             // 回退路径：服务端渲染好的 480×800 相框位图（已含照片+文字，方向由服务端校正）
