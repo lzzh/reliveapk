@@ -181,11 +181,13 @@ fun ReliveScreen(
     // 彻底绕开不确定的 Compose 尺寸扩展（onSizeChanged/onGloballyPositioned 在此 BOM 解析不到）
     val rootView = androidx.compose.ui.platform.LocalView.current
     LaunchedEffect(rootView) {
-        val listener = android.view.ViewTreeObserver.OnGlobalLayoutListener {
-            fullW = rootView.width
-            fullH = rootView.height
-            if (rootView.width > 0 && rootView.height > 0) {
-                rootView.viewTreeObserver.removeOnGlobalLayoutListener(listener)
+        val listener = object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
+            override fun onGlobalLayout() {
+                fullW = rootView.width
+                fullH = rootView.height
+                if (rootView.width > 0 && rootView.height > 0) {
+                    rootView.viewTreeObserver.removeOnGlobalLayoutListener(this)
+                }
             }
         }
         rootView.viewTreeObserver.addOnGlobalLayoutListener(listener)
