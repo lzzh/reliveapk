@@ -216,10 +216,16 @@ fun ReliveScreen(
             }
             val pb = pageBitmap
             if (pb != null) {
+                // 位图宽高比与当前容器一致时用 FillBounds（不变形、文字条完整）；
+                // 不一致（旋转过渡帧的旧位图）时用 Crop，避免旧位图被拉伸变形
+                val containerRatio = fullW.toFloat() / fullH.coerceAtLeast(1)
+                val bm = pb.asAndroidBitmap()
+                val bitmapRatio = bm.width.toFloat() / bm.height.coerceAtLeast(1f)
+                val match = Math.abs(containerRatio - bitmapRatio) / containerRatio < 0.02f
                 Image(
                     bitmap = pb,
                     contentDescription = "往年今日照片",
-                    contentScale = ContentScale.FillBounds,
+                    contentScale = if (match) ContentScale.FillBounds else ContentScale.Crop,
                     filterQuality = FilterQuality.Medium,
                     modifier = Modifier.fillMaxSize()
                 )
