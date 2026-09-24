@@ -181,7 +181,7 @@ fun ReliveScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .onSizeChanged { size -> fullW = size.width; fullH = size.height }
+            .onGloballyPositioned { fullW = it.size.width; fullH = it.size.height }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
