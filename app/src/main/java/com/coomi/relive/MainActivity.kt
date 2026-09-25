@@ -189,7 +189,7 @@ fun ReliveScreen(
             }
         }
         rootView.viewTreeObserver.addOnGlobalLayoutListener(listener)
-        rootView.viewTreeObserver.addOnAttachStateChangeListener(
+        rootView.addOnAttachStateChangeListener(
             object : android.view.View.OnAttachStateChangeListener {
                 override fun onViewAttachedToWindow(v: android.view.View) {}
                 override fun onViewDetachedFromWindow(v: android.view.View) {
