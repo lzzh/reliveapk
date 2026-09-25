@@ -178,20 +178,25 @@ fun ReliveScreen(
     // 底部文字白条占屏比例（可在设置里自定义）
     var bandRatio by remember { mutableStateOf(initialRatio) }
 
-    // 用标准 Android API（ViewTreeObserver 布局监听）取整屏像素，
-    // 彻底绕开不确定的 Compose 尺寸扩展（onSizeChanged/onGloballyPositioned 在此 BOM 解析不到）
+    // 持续监听布局变化（旋转屏幕也会触发 onGlobalLayout），让 fullW/fullH 始终跟当前屏幕方向一致。
+    // 首次取到尺寸后不移除监听，否则旋转到横屏时 fullW/fullH 不更新 → 合成位图方向错 → FillBounds 拉伸变形。
     val rootView = androidx.compose.ui.platform.LocalView.current
     LaunchedEffect(rootView) {
         val listener = object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
             override fun onGlobalLayout() {
                 fullW = rootView.width
                 fullH = rootView.height
-                if (rootView.width > 0 && rootView.height > 0) {
-                    rootView.viewTreeObserver.removeOnGlobalLayoutListener(this)
-                }
             }
         }
         rootView.viewTreeObserver.addOnGlobalLayoutListener(listener)
+        rootView.viewTreeObserver.addOnAttachStateChangeListener(
+            object : android.view.View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(v: android.view.View) {}
+                override fun onViewDetachedFromWindow(v: android.view.View) {
+                    v.viewTreeObserver.removeOnGlobalLayoutListener(listener)
+                }
+            }
+        )
     }
 
     Box(
@@ -217,13 +222,12 @@ fun ReliveScreen(
             }
             val pb = pageBitmap
             if (pb != null) {
-                // 位图宽高比与当前容器一致时用 FillBounds（不变形、文字条完整）；
-                // 不一致（旋转过渡帧的旧位图）时用 Crop，避免旧位图被拉伸变形
-                val containerRatio = fullW.toFloat() / fullH.coerceAtLeast(1)
+                // 位图宽高比与当前容器一致 → FillBounds（1:1 铺满、文字条完整）；
+                // 不一致（旋转过渡帧，位图还是旧方向）→ Crop（等比裁切、绝不拉伸变形）
                 val bm = pb.asAndroidBitmap()
-                val bitmapRatio = bm.width.toFloat() / bm.height.coerceAtLeast(1).toFloat()
-                val diffRatio = kotlin.math.abs(containerRatio - bitmapRatio) / containerRatio.coerceAtLeast(0.0001f)
-                val match = diffRatio < 0.02f
+                val bitmapRatio = bm.width.toFloat() / bm.height.coerceAtLeast(1)
+                val containerRatio = fullW.toFloat() / fullH.coerceAtLeast(1)
+                val match = kotlin.math.abs(bitmapRatio - containerRatio) < 0.05f
                 Image(
                     bitmap = pb,
                     contentDescription = "往年今日照片",
